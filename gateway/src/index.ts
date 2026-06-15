@@ -4,8 +4,8 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import config from './config';
 import { getDbPool } from './db';
 import { getRedisClient, cacheGet, cacheSet } from './cache';
-import { getTenantConfig, getCurrentSupergraph, buildQueryPlannerContext } from './services/supergraph-loader';
-import { planQuery, getQueryHash, buildQueryPlannerContext as buildQPContext } from './services/query-planner';
+import { getTenantConfig, getCurrentSupergraph } from './services/supergraph-loader';
+import { planQuery, getQueryHash, buildQueryPlannerContext } from './services/query-planner';
 import { executeSimpleQuery } from './services/query-executor';
 import { validateQueryDepth, validateQueryComplexity, analyzeDepthAndComplexity } from './services/query-analysis';
 import { shouldUseGrayscale, checkGrayscaleAutoRollback, checkGrayscaleAutoPromote } from './services/grayscale';
@@ -100,7 +100,7 @@ export async function buildGateway() {
       queryPlan = cachedPlan;
     } else {
       try {
-        const plannerContext = buildQPContext(supergraph.subgraphs);
+        const plannerContext = buildQueryPlannerContext(supergraph.subgraphs);
         queryPlan = planQuery(query, plannerContext);
         await cacheSet(planCacheKey, queryPlan, config.queryPlanCacheTtl);
       } catch (err: any) {

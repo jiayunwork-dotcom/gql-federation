@@ -45,6 +45,11 @@ export interface ExecutionResult {
     queryPlan?: QueryPlan;
     subgraphMetrics?: SubgraphMetric[];
     duration?: number;
+    depth?: number;
+    complexity?: number;
+    supergraphVersion?: number;
+    supergraphStatus?: string;
+    [key: string]: any;
   };
 }
 

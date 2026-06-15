@@ -142,7 +142,7 @@ function validateScalarsConsistency(subgraphs: ParsedSubgraph[]): CompositionErr
       }
       scalarDefinitions.get(name)!.push({
         subgraph: sg.name,
-        line: node.loc?.startLine,
+        line: node.loc?.start,
       });
     }
   }
@@ -173,7 +173,7 @@ function validateEnumsConsistency(subgraphs: ParsedSubgraph[]): CompositionError
       for (const value of enumNode.values || []) {
         const valueName = value.name.value;
         if (!valueMap.has(valueName)) {
-          valueMap.set(valueName, { subgraph: sg.name, line: value.loc?.startLine });
+          valueMap.set(valueName, { subgraph: sg.name, line: value.loc?.start });
         }
       }
     }
@@ -202,7 +202,7 @@ function validateFieldTypeConsistency(subgraphs: ParsedSubgraph[]): CompositionE
           typeFieldMap.set(fieldName, {
             type: fieldType,
             subgraph: sg.name,
-            line: field.loc?.startLine,
+            line: field.loc?.start,
             isExternal,
           });
         } else if (!isExternal) {
@@ -211,7 +211,7 @@ function validateFieldTypeConsistency(subgraphs: ParsedSubgraph[]): CompositionE
             errors.push({
               subgraph: sg.name,
               message: `Field "${typeName}.${fieldName}" has conflicting types: "${existing.type}" in ${existing.subgraph} vs "${fieldType}" in ${sg.name}`,
-              line: field.loc?.startLine,
+              line: field.loc?.start,
             });
           }
         }
@@ -405,7 +405,7 @@ function mergeSubgraphs(subgraphs: ParsedSubgraph[]): DocumentNode {
   }
 
   return {
-    kind: 'Document',
+    kind: 'Document' as any,
     definitions,
   };
 }

@@ -171,8 +171,8 @@ function Alerts() {
           </Form.Item>
           <Form.Item name="comparison" label="比较方式" rules={[{ required: true }]}>
             <Select>
-              <Select.Option value="gt">大于 (>)</Select.Option>
-              <Select.Option value="lt">小于 (<)</Select.Option>
+              <Select.Option value="gt">大于 (&gt;)</Select.Option>
+              <Select.Option value="lt">小于 (&lt;)</Select.Option>
             </Select>
           </Form.Item>
           <Form.Item label="通知渠道">
