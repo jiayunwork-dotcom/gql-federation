@@ -239,18 +239,6 @@ INSERT INTO tenants (name, display_name, is_active)
 VALUES ('default', 'Default Tenant', true)
 ON CONFLICT (name) DO NOTHING;
 
--- Create default super admin user (password: admin123)
--- bcrypt hash for 'admin123'
-INSERT INTO admin_users (email, password_hash, name, role, is_active)
-VALUES (
-    'admin@example.com', 
-    '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 
-    'Super Admin', 
-    'super_admin', 
-    true
-)
-ON CONFLICT (email) DO NOTHING;
-
 -- ============================================
 -- Updated_at triggers
 -- ============================================

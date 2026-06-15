@@ -5,19 +5,16 @@ export async function tenantMiddleware(request: FastifyRequest, reply: FastifyRe
   const tenantHeader = request.headers['x-tenant-id'] as string;
   
   if (!tenantHeader) {
-    reply.status(400).send({ error: 'Missing X-Tenant-ID header' });
-    return;
+    return reply.status(400).send({ error: 'Missing X-Tenant-ID header' });
   }
 
   const tenant = await getTenantByName(tenantHeader);
   if (!tenant) {
-    reply.status(404).send({ error: `Tenant "${tenantHeader}" not found` });
-    return;
+    return reply.status(404).send({ error: `Tenant "${tenantHeader}" not found` });
   }
 
   if (!tenant.is_active) {
-    reply.status(403).send({ error: `Tenant "${tenantHeader}" is disabled` });
-    return;
+    return reply.status(403).send({ error: `Tenant "${tenantHeader}" is disabled` });
   }
 
   request.tenantId = tenant.id;

@@ -4,6 +4,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import config from './config';
 import { getDbPool } from './db';
 import { getRedisClient } from './cache';
+import { ensureDefaultAdmin } from './services/auth-service';
 
 import authRoutes from './routes/auth';
 import tenantRoutes from './routes/tenants';
@@ -55,6 +56,8 @@ export async function startServer() {
   try {
     getDbPool();
     getRedisClient();
+
+    await ensureDefaultAdmin();
 
     const app = await buildApp();
 

@@ -42,7 +42,8 @@ export async function login(email: string, password: string): Promise<AuthResult
 }
 
 function generateTokenFromUser(user: AdminUser): string {
-  return Buffer.from(`${user.id}:${user.email}:${Date.now()}`).toString('base64');
+  const payload = JSON.stringify({ id: user.id, email: user.email, ts: Date.now() });
+  return Buffer.from(payload).toString('base64url');
 }
 
 export async function getUserById(id: string): Promise<AdminUser | null> {
@@ -88,14 +89,38 @@ export async function createUser(input: CreateUserInput): Promise<AdminUser> {
 
 export function verifyToken(token: string): { valid: boolean; userId?: string; email?: string } {
   try {
-    const decoded = Buffer.from(token, 'base64').toString('utf8');
-    const [userId, email] = decoded.split(':');
-    if (!userId || !email) {
+    const decoded = Buffer.from(token, 'base64url').toString('utf8');
+    const payload = JSON.parse(decoded);
+    if (!payload.id || !payload.email) {
       return { valid: false };
     }
-    return { valid: true, userId, email };
+    return { valid: true, userId: payload.id, email: payload.email };
   } catch {
     return { valid: false };
+  }
+}
+
+export async function ensureDefaultAdmin(): Promise<void> {
+  const result = await query<AdminUser>(
+    "SELECT * FROM admin_users WHERE email = 'admin@example.com'"
+  );
+
+  if (result.rows.length === 0) {
+    const passwordHash = await bcrypt.hash('admin123', 10);
+    await query(
+      `INSERT INTO admin_users (email, password_hash, name, role, is_active)
+       VALUES ('admin@example.com', $1, 'Super Admin', 'super_admin', true)
+       ON CONFLICT (email) DO NOTHING`,
+      [passwordHash]
+    );
+    console.log('Default admin user created');
+  } else {
+    const passwordHash = await bcrypt.hash('admin123', 10);
+    await query(
+      'UPDATE admin_users SET password_hash = $1 WHERE email = $2',
+      [passwordHash, 'admin@example.com']
+    );
+    console.log('Default admin password hash verified/updated');
   }
 }
 
@@ -105,4 +130,5 @@ export default {
   getUserByEmail,
   createUser,
   verifyToken,
+  ensureDefaultAdmin,
 };

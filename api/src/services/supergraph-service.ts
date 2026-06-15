@@ -108,8 +108,8 @@ export async function composeAndPublishSupergraph(
   const result = await query<SupergraphVersion>(
     `INSERT INTO supergraph_versions 
      (tenant_id, version, sdl, schema_size_bytes, composition_result, subgraph_versions, 
-      status, grayscale_percent, published_by)
-     VALUES ($1, $2, $3, $4, $5, $6, 'grayscale', $7, $8)
+      status, grayscale_percent, grayscale_start_at, published_by)
+     VALUES ($1, $2, $3, $4, $5, $6, 'grayscale', $7, NOW(), $8)
      RETURNING *`,
     [
       tenantId,
