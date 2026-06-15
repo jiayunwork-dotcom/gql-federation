@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gqlfederation}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gqlfederation}
+      POSTGRES_DB: ${POSTGRES_DB:-gqlfederation}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gqlfederation"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gql-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gql-network
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-gqlfederation}:${POSTGRES_PASSWORD:-gqlfederation}@postgres:5432/${POSTGRES_DB:-gqlfederation}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-change-in-production}
+      SUPERGRAPH_CACHE_TTL: 300
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./api/src:/app/src
+    networks:
+      - gql-network
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER:-gqlfederation}:${POSTGRES_PASSWORD:-gqlfederation}@postgres:5432/${POSTGRES_DB:-gqlfederation}
+      REDIS_URL: redis://redis:6379
+      API_URL: http://api:3000
+      QUERY_PLAN_CACHE_TTL: 3600
+      MAX_QUERY_DEPTH: 15
+      MAX_COMPLEXITY: 1000
+      BATCH_SIZE: 200
+      GRAYSCALE_PERCENT: 10
+      GRAYSCALE_DURATION: 300
+      GRAYSCALE_ERROR_THRESHOLD: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - ./gateway/src:/app/src
+    networks:
+      - gql-network
+    restart: unless-stopped
+
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    environment:
+      - API_BASE_URL=http://api:3000
+      - GATEWAY_URL=http://gateway:4000
+    depends_on:
+      - api
+      - gateway
+    networks:
+      - gql-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  gql-network:
+    driver: bridge

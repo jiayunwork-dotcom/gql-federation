@@ -1,0 +1,90 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: #f0f2f5;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.layout {
+  min-height: 100vh;
+}
+
+.logo {
+  height: 32px;
+  margin: 16px;
+  color: white;
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+  line-height: 32px;
+}
+
+.site-layout .site-layout-background {
+  background: #fff;
+}
+
+.monaco-container {
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.query-plan-tree {
+  font-family: monospace;
+  font-size: 12px;
+  background: #fafafa;
+  padding: 16px;
+  border-radius: 6px;
+  border: 1px solid #e8e8e8;
+}
+
+.metric-card {
+  text-align: center;
+}
+
+.metric-card .metric-value {
+  font-size: 28px;
+  font-weight: bold;
+  color: #1677ff;
+}
+
+.metric-card .metric-label {
+  color: #666;
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+.health-status-success {
+  color: #52c41a;
+}
+
+.health-status-warning {
+  color: #faad14;
+}
+
+.health-status-error {
+  color: #ff4d4f;
+}
+
+.schema-diff {
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.schema-diff .diff-add {
+  background-color: #f6ffed;
+  color: #389e0d;
+}
+
+.schema-diff .diff-remove {
+  background-color: #fff1f0;
+  color: #cf1322;
+}
