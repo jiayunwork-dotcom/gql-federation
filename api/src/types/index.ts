@@ -198,3 +198,80 @@ export interface CompositionLog {
   duration_ms?: number;
   created_at: Date;
 }
+
+export type ApprovalStatus = 'pending_approval' | 'approved' | 'rejected' | 'validation_failed' | 'resubmitted';
+
+export interface DiffSummary {
+  addedFields: number;
+  removedFields: number;
+  modifiedTypes: number;
+  addedTypes: number;
+  removedTypes: number;
+  details: {
+    addedFields: string[];
+    removedFields: string[];
+    modifiedTypes: string[];
+    addedTypes: string[];
+    removedTypes: string[];
+  };
+}
+
+export interface SchemaChangeApproval {
+  id: string;
+  tenant_id: string;
+  subgraph_id: string;
+  subgraph_name: string;
+  schema_version_id?: string;
+  submitted_by: string;
+  changelog?: string;
+  diff_summary: DiffSummary;
+  status: ApprovalStatus;
+  reviewed_by?: string;
+  review_comment?: string;
+  reviewed_at?: Date;
+  composition_result?: CompositionResult;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface DependencyEdge {
+  source: string;
+  target: string;
+  entities: string[];
+  fields: Record<string, string[]>;
+}
+
+export interface DependencyGraph {
+  nodes: Array<{
+    id: string;
+    name: string;
+    owner: string;
+    latestVersion: number;
+    health: string;
+  }>;
+  edges: DependencyEdge[];
+}
+
+export interface SchemaDiffLine {
+  lineNumber: number;
+  content: string;
+  type: 'added' | 'removed' | 'modified' | 'unchanged';
+  typeName?: string;
+}
+
+export interface SchemaDiffResult {
+  leftLines: SchemaDiffLine[];
+  rightLines: SchemaDiffLine[];
+  structuredSummary: {
+    addedTypes: string[];
+    removedTypes: string[];
+    addedFields: string[];
+    removedFields: string[];
+    typeChanges: Array<{ path: string; fromType: string; toType: string }>;
+  };
+  typeSections: Array<{
+    typeName: string;
+    leftRange: { start: number; end: number };
+    rightRange: { start: number; end: number };
+  }>;
+}

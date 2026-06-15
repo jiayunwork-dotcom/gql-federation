@@ -9,6 +9,9 @@ import {
   ApiOutlined,
   BellOutlined,
   SettingOutlined,
+  AuditOutlined,
+  ApartmentOutlined,
+  DiffOutlined,
 } from '@ant-design/icons';
 import { useAuth } from './store/auth';
 import Login from './pages/Login';
@@ -20,6 +23,9 @@ import Metrics from './pages/Metrics';
 import Alerts from './pages/Alerts';
 import Settings from './pages/Settings';
 import ChangeHistory from './pages/ChangeHistory';
+import Approvals from './pages/Approvals';
+import DependencyGraph from './pages/DependencyGraph';
+import SchemaDiff from './pages/SchemaDiff';
 
 const { Header, Sider, Content } = Layout;
 
@@ -42,8 +48,11 @@ function App() {
   const menuItems = [
     { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
     { key: '/subgraphs', icon: <AppstoreOutlined />, label: 'SubGraph 管理' },
+    { key: '/approvals', icon: <AuditOutlined />, label: '变更审批' },
+    { key: '/dependency-graph', icon: <ApartmentOutlined />, label: '依赖关系' },
     { key: '/schema', icon: <FileTextOutlined />, label: 'Schema 浏览' },
     { key: '/changes', icon: <LineChartOutlined />, label: '变更历史' },
+    { key: '/schema-diff', icon: <DiffOutlined />, label: '版本 Diff' },
     { key: '/query-analyzer', icon: <ApiOutlined />, label: '查询分析器' },
     { key: '/metrics', icon: <LineChartOutlined />, label: '监控指标' },
     { key: '/alerts', icon: <BellOutlined />, label: '告警配置' },
@@ -78,8 +87,11 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/subgraphs" element={<Subgraphs />} />
+            <Route path="/approvals" element={<Approvals />} />
+            <Route path="/dependency-graph" element={<DependencyGraph />} />
             <Route path="/schema" element={<SchemaBrowser />} />
             <Route path="/changes" element={<ChangeHistory />} />
+            <Route path="/schema-diff" element={<SchemaDiff />} />
             <Route path="/query-analyzer" element={<QueryAnalyzer />} />
             <Route path="/metrics" element={<Metrics />} />
             <Route path="/alerts" element={<Alerts />} />

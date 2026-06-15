@@ -231,6 +231,33 @@ CREATE INDEX idx_composition_logs_status ON composition_logs(status);
 CREATE INDEX idx_composition_logs_created_at ON composition_logs(created_at);
 
 -- ============================================
+-- Schema Change Approvals
+-- ============================================
+CREATE TABLE schema_change_approvals (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    subgraph_id UUID NOT NULL REFERENCES subgraphs(id) ON DELETE CASCADE,
+    subgraph_name VARCHAR(100) NOT NULL,
+    schema_version_id UUID REFERENCES schema_versions(id) ON DELETE SET NULL,
+    submitted_by VARCHAR(100) NOT NULL,
+    changelog TEXT,
+    diff_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending_approval',
+    reviewed_by VARCHAR(100),
+    review_comment TEXT,
+    reviewed_at TIMESTAMPTZ,
+    composition_result JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_schema_change_approvals_tenant_id ON schema_change_approvals(tenant_id);
+CREATE INDEX idx_schema_change_approvals_subgraph_id ON schema_change_approvals(subgraph_id);
+CREATE INDEX idx_schema_change_approvals_status ON schema_change_approvals(status);
+CREATE INDEX idx_schema_change_approvals_submitted_by ON schema_change_approvals(submitted_by);
+CREATE INDEX idx_schema_change_approvals_created_at ON schema_change_approvals(created_at);
+
+-- ============================================
 -- Insert initial data
 -- ============================================
 
@@ -263,4 +290,7 @@ CREATE TRIGGER update_alert_configs_updated_at BEFORE UPDATE ON alert_configs
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_admin_users_updated_at BEFORE UPDATE ON admin_users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_schema_change_approvals_updated_at BEFORE UPDATE ON schema_change_approvals
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

@@ -32,9 +32,11 @@ function Subgraphs() {
   const [loading, setLoading] = useState(true);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
+  const [schemaModalVisible, setSchemaModalVisible] = useState(false);
   const [selectedSubgraph, setSelectedSubgraph] = useState<Subgraph | null>(null);
   const [versions, setVersions] = useState<SchemaVersion[]>([]);
   const [form] = Form.useForm();
+  const [schemaForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -94,6 +96,31 @@ function Subgraphs() {
     }
   };
 
+  const handleSubmitSchema = async (values: any) => {
+    if (!selectedSubgraph) return;
+    setSubmitting(true);
+    try {
+      await api.post(`/subgraphs/${selectedSubgraph.id}/schema`, {
+        sdl: values.sdl,
+        changelog: values.changelog,
+      });
+      message.success('Schema 变更已提交审批');
+      setSchemaModalVisible(false);
+      schemaForm.resetFields();
+      loadVersions(selectedSubgraph.id);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '提交失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const openSchemaModal = (subgraph: Subgraph) => {
+    setSelectedSubgraph(subgraph);
+    schemaForm.resetFields();
+    setSchemaModalVisible(true);
+  };
+
   const columns = [
     {
       title: '名称',
@@ -133,8 +160,8 @@ function Subgraphs() {
           <Button type="link" icon={<EyeOutlined />} onClick={() => handleViewDetail(record)}>
             详情
           </Button>
-          <Button type="link" icon={<EditOutlined />} onClick={() => {}}>
-            编辑
+          <Button type="link" icon={<EditOutlined />} onClick={() => openSchemaModal(record)}>
+            提交 Schema
           </Button>
           <Button type="link" danger icon={<DeleteOutlined />} onClick={() => {}}>
             删除
@@ -250,6 +277,36 @@ function Subgraphs() {
           </>
         )}
       </Drawer>
+
+      <Modal
+        title={`提交 Schema 变更 - ${selectedSubgraph?.name || ''}`}
+        open={schemaModalVisible}
+        onCancel={() => setSchemaModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <Form form={schemaForm} layout="vertical" onFinish={handleSubmitSchema}>
+          <Form.Item name="changelog" label="变更说明">
+            <Input.TextArea rows={3} placeholder="描述本次 Schema 变更内容..." />
+          </Form.Item>
+          <Form.Item name="sdl" label="新 Schema SDL" rules={[{ required: true }]}>
+            <div className="monaco-container" style={{ height: 400 }}>
+              <Editor
+                height={400}
+                defaultLanguage="graphql"
+                defaultValue={`type Query {\n  hello: String\n}`}
+                onChange={(value) => schemaForm.setFieldValue('sdl', value)}
+                theme="vs-light"
+              />
+            </div>
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={submitting}>
+              提交审批
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

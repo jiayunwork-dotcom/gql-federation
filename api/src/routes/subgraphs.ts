@@ -7,11 +7,11 @@ import {
   getSchemaVersions,
   getSchemaVersionById,
   createSubgraph,
-  updateSubgraphSchema,
   rollbackSchemaVersion,
   deleteSubgraph,
   updateSubgraphMetadata,
 } from '../services/subgraph-service';
+import { submitSchemaChange } from '../services/approval-service';
 import { composeAndPublishSupergraph } from '../services/supergraph-service';
 
 export default async function subgraphRoutes(fastify: FastifyInstance) {
@@ -113,20 +113,21 @@ export default async function subgraphRoutes(fastify: FastifyInstance) {
     const body = request.body as any;
     const tenantId = request.tenantId!;
     const user = request.user!;
-    
+
     try {
-      const result = await updateSubgraphSchema({
-        subgraphId: id,
+      const result = await submitSchemaChange({
         tenantId,
+        subgraphId: id,
         sdl: body.sdl,
-        publishedBy: user.email,
+        submittedBy: user.email,
+        changelog: body.changelog,
       });
 
-      if (result.compositionSuccess) {
-        await composeAndPublishSupergraph(tenantId, user.email);
-      }
-
-      return result;
+      reply.status(201).send({
+        message: 'Schema change submitted for approval',
+        approval: result.approval,
+        versionId: result.versionId,
+      });
     } catch (err: any) {
       reply.status(400).send({ error: err.message });
     }

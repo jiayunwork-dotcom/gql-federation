@@ -12,6 +12,9 @@ import subgraphRoutes from './routes/subgraphs';
 import supergraphRoutes from './routes/supergraph';
 import metricsRoutes from './routes/metrics';
 import alertRoutes from './routes/alerts';
+import approvalRoutes from './routes/approvals';
+import dependencyGraphRoutes from './routes/dependency-graph';
+import schemaDiffRoutes from './routes/schema-diff';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -39,6 +42,9 @@ export async function buildApp() {
   fastify.register(supergraphRoutes, { prefix: '/api/supergraph' });
   fastify.register(metricsRoutes, { prefix: '/api/metrics' });
   fastify.register(alertRoutes, { prefix: '/api/alerts' });
+  fastify.register(approvalRoutes, { prefix: '/api/approvals' });
+  fastify.register(dependencyGraphRoutes, { prefix: '/api/dependency-graph' });
+  fastify.register(schemaDiffRoutes, { prefix: '/api/schema-diff' });
 
   fastify.setErrorHandler((error, request, reply) => {
     console.error('Error:', error);
