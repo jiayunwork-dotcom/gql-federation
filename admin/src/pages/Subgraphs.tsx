@@ -286,7 +286,20 @@ function Subgraphs() {
         width={800}
       >
         <Form form={schemaForm} layout="vertical" onFinish={handleSubmitSchema}>
-          <Form.Item name="changelog" label="变更说明">
+          <Form.Item 
+            name="changelog" 
+            label="变更说明"
+            rules={[
+              { required: true, message: '请填写变更说明' },
+              { min: 2, message: '变更说明至少需要2个字符' },
+              { validator: (_, value) => {
+                if (value && typeof value === 'string' && value.trim().length < 2) {
+                  return Promise.reject(new Error('变更说明不能为空白字符'));
+                }
+                return Promise.resolve();
+              }}
+            ]}
+          >
             <Input.TextArea rows={3} placeholder="描述本次 Schema 变更内容..." />
           </Form.Item>
           <Form.Item name="sdl" label="新 Schema SDL" rules={[{ required: true }]}>

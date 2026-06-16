@@ -111,6 +111,10 @@ export async function submitSchemaChange(input: SubmitApprovalInput): Promise<{ 
     throw new Error('Subgraph not found');
   }
 
+  if (!input.changelog || input.changelog.trim().length < 2) {
+    throw new Error('变更说明不能为空且至少需要2个字符');
+  }
+
   const latestVersion = await getLatestSchemaVersion(input.subgraphId);
   const latestSdl = latestVersion?.sdl || null;
   const changes = detectChanges(latestSdl, input.sdl);
@@ -278,6 +282,11 @@ export async function resubmitSchemaChange(
     throw new Error('Only the original submitter can resubmit');
   }
 
+  const effectiveChangelog = changelog || approval.changelog;
+  if (!effectiveChangelog || effectiveChangelog.trim().length < 2) {
+    throw new Error('变更说明不能为空且至少需要2个字符');
+  }
+
   const latestVersion = await getLatestSchemaVersion(approval.subgraph_id);
   const latestSdl = latestVersion?.sdl || null;
   const changes = detectChanges(latestSdl, sdl);
@@ -301,7 +310,7 @@ export async function resubmitSchemaChange(
          status = 'resubmitted', reviewed_by = NULL, review_comment = NULL, 
          reviewed_at = NULL, composition_result = NULL
      WHERE id = $4`,
-    [version.id, changelog || approval.changelog, JSON.stringify(diffSummary), approvalId]
+    [version.id, effectiveChangelog, JSON.stringify(diffSummary), approvalId]
   );
 
   const updated = await getApprovalById(approvalId, tenantId);

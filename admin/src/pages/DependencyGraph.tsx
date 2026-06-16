@@ -34,20 +34,21 @@ interface DependencyGraph {
   edges: GraphEdge[];
 }
 
-function forceLayout(nodes: GraphNode[], edges: Array<{ source: string; target: string }>, width: number, height: number, iterations: number = 200) {
+function forceLayout(nodes: GraphNode[], edges: Array<{ source: string; target: string }>, width: number, height: number, iterations: number = 300) {
   const centerX = width / 2;
   const centerY = height / 2;
+  const nodeRadius = 38;
 
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+  const nodeMap = new Map(nodes.map(n => [n.name, n]));
 
   for (const node of nodes) {
-    node.x = centerX + (Math.random() - 0.5) * 200;
-    node.y = centerY + (Math.random() - 0.5) * 200;
+    node.x = centerX + (Math.random() - 0.5) * 300;
+    node.y = centerY + (Math.random() - 0.5) * 300;
     node.vx = 0;
     node.vy = 0;
   }
 
-  const k = Math.sqrt((width * height) / Math.max(nodes.length, 1)) * 0.3;
+  const k = Math.sqrt((width * height) / Math.max(nodes.length, 1)) * 0.5;
 
   for (let iter = 0; iter < iterations; iter++) {
     const alpha = 1 - iter / iterations;
@@ -80,7 +81,7 @@ function forceLayout(nodes: GraphNode[], edges: Array<{ source: string; target: 
       const dx = target.x - source.x;
       const dy = target.y - source.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const force = (dist - k * 2) * 0.05;
+      const force = (dist - k * 1.2) * 0.08;
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
 
@@ -90,18 +91,41 @@ function forceLayout(nodes: GraphNode[], edges: Array<{ source: string; target: 
       target.vy -= fy;
     }
 
-    for (const node of nodes) {
-      node.vx += (centerX - node.x) * 0.01 * alpha;
-      node.vy += (centerY - node.y) * 0.01 * alpha;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const dx = nodes[j].x - nodes[i].x;
+        const dy = nodes[j].y - nodes[i].y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const minDist = nodeRadius * 2 + 10;
 
-      node.vx *= 0.6;
-      node.vy *= 0.6;
+        if (dist < minDist) {
+          const overlap = minDist - dist;
+          const fx = (dx / dist) * overlap * 0.5;
+          const fy = (dy / dist) * overlap * 0.5;
+          nodes[i].x -= fx;
+          nodes[i].y -= fy;
+          nodes[j].x += fx;
+          nodes[j].y += fy;
+          nodes[i].vx *= 0.3;
+          nodes[i].vy *= 0.3;
+          nodes[j].vx *= 0.3;
+          nodes[j].vy *= 0.3;
+        }
+      }
+    }
+
+    for (const node of nodes) {
+      node.vx += (centerX - node.x) * 0.008 * alpha;
+      node.vy += (centerY - node.y) * 0.008 * alpha;
+
+      node.vx *= 0.55;
+      node.vy *= 0.55;
 
       node.x += node.vx * alpha;
       node.y += node.vy * alpha;
 
-      node.x = Math.max(80, Math.min(width - 80, node.x));
-      node.y = Math.max(40, Math.min(height - 40, node.y));
+      node.x = Math.max(nodeRadius + 20, Math.min(width - nodeRadius - 20, node.x));
+      node.y = Math.max(nodeRadius + 10, Math.min(height - nodeRadius - 10, node.y));
     }
   }
 }
@@ -153,6 +177,7 @@ function DependencyGraph() {
     }
   };
 
+  const nodeRadius = 38;
   const nodeMap = new Map(layoutNodes.map(n => [n.name, n]));
 
   const handleMouseDown = useCallback((e: React.MouseEvent, nodeId: string) => {
@@ -231,7 +256,7 @@ function DependencyGraph() {
               id="arrowhead"
               markerWidth="10"
               markerHeight="7"
-              refX="10"
+              refX={nodeRadius}
               refY="3.5"
               orient="auto"
             >
@@ -241,7 +266,7 @@ function DependencyGraph() {
               id="arrowhead-highlight"
               markerWidth="10"
               markerHeight="7"
-              refX="10"
+              refX={nodeRadius}
               refY="3.5"
               orient="auto"
             >
@@ -256,20 +281,28 @@ function DependencyGraph() {
 
             const highlighted = isEdgeHighlighted(edge);
             const dimmed = isEdgeDimmed(edge);
-            const midX = (source.x + target.x) / 2;
-            const midY = (source.y + target.y) / 2;
 
             const dx = target.x - source.x;
             const dy = target.y - source.y;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const offsetDist = 20;
+            const unitX = dx / dist;
+            const unitY = dy / dist;
+
+            const startX = source.x + unitX * nodeRadius;
+            const startY = source.y + unitY * nodeRadius;
+            const endX = target.x - unitX * nodeRadius;
+            const endY = target.y - unitY * nodeRadius;
+
+            const midX = (startX + endX) / 2;
+            const midY = (startY + endY) / 2;
+            const offsetDist = 24;
             const curveX = midX + (-dy / dist) * offsetDist;
             const curveY = midY + (dx / dist) * offsetDist;
 
             return (
               <g key={`edge-${idx}`} onClick={() => { setSelectedEdge(edge); setEdgeDrawerVisible(true); }} style={{ cursor: 'pointer' }}>
                 <path
-                  d={`M ${source.x} ${source.y} Q ${curveX} ${curveY} ${target.x} ${target.y}`}
+                  d={`M ${startX} ${startY} Q ${curveX} ${curveY} ${endX} ${endY}`}
                   fill="none"
                   stroke={highlighted ? '#1890ff' : dimmed ? '#e8e8e8' : '#bbb'}
                   strokeWidth={highlighted ? 2.5 : 1.5}
@@ -307,12 +340,12 @@ function DependencyGraph() {
                 opacity={isDimmed ? 0.3 : 1}
               >
                 <circle
-                  r={isHovered ? 35 : 30}
+                  r={isHovered ? nodeRadius + 4 : nodeRadius}
                   fill="#fff"
                   stroke={getHealthColor(node.health)}
                   strokeWidth={isHovered ? 3 : 2}
                 />
-                <circle r={6} cx={20} cy={-20} fill={getHealthColor(node.health)} />
+                <circle r={6} cx={nodeRadius - 10} cy={-nodeRadius + 10} fill={getHealthColor(node.health)} />
                 <text
                   textAnchor="middle"
                   dy="-4"
@@ -320,7 +353,7 @@ function DependencyGraph() {
                   fontWeight="bold"
                   fill="#333"
                 >
-                  {node.name.length > 10 ? node.name.substring(0, 10) + '...' : node.name}
+                  {node.name.length > 12 ? node.name.substring(0, 12) + '...' : node.name}
                 </text>
                 <text
                   textAnchor="middle"

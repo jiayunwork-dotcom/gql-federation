@@ -1,11 +1,6 @@
-import { parse, print, visit, DocumentNode, ObjectTypeDefinitionNode, FieldDefinitionNode, EnumTypeDefinitionNode, ScalarTypeDefinitionNode, InterfaceTypeDefinitionNode, InputObjectTypeDefinitionNode, UnionTypeDefinitionNode, DefinitionNode } from 'graphql';
+import { parse, print, DocumentNode, ObjectTypeDefinitionNode, FieldDefinitionNode, NameNode } from 'graphql';
 import { SchemaDiffResult, SchemaDiffLine } from '../types';
 import { getSchemaVersionById, getSchemaVersions } from './subgraph-service';
-
-function getTypeName(type: any): string {
-  if (type.kind === 'NamedType') return type.name.value;
-  return getTypeName(type.type);
-}
 
 interface TypeBlock {
   name: string;
@@ -86,16 +81,16 @@ function computeLineDiff(leftSdl: string, rightSdl: string): { leftLines: Schema
   const leftBlockMap = new Map(leftBlocks.map(b => [b.name, b]));
   const rightBlockMap = new Map(rightBlocks.map(b => [b.name, b]));
 
-  const leftLines = leftSdl.split('\n').map((content, i) => ({
+  const leftLines: SchemaDiffLine[] = leftSdl.split('\n').map((content, i) => ({
     lineNumber: i + 1,
     content,
-    type: 'unchanged' as const,
+    type: 'unchanged' as SchemaDiffLine['type'],
   }));
 
-  const rightLines = rightSdl.split('\n').map((content, i) => ({
+  const rightLines: SchemaDiffLine[] = rightSdl.split('\n').map((content, i) => ({
     lineNumber: i + 1,
     content,
-    type: 'unchanged' as const,
+    type: 'unchanged' as SchemaDiffLine['type'],
   }));
 
   const allTypeNames = new Set([...leftBlockMap.keys(), ...rightBlockMap.keys()]);
@@ -188,29 +183,39 @@ function computeStructuredSummary(leftSdl: string, rightSdl: string): SchemaDiff
     return summary;
   }
 
-  const leftTypes = new Map<string, DefinitionNode>();
-  const rightTypes = new Map<string, DefinitionNode>();
+  const leftTypes = new Map<string, ObjectTypeDefinitionNode>();
+  const rightTypes = new Map<string, ObjectTypeDefinitionNode>();
+  const leftAllNames = new Set<string>();
+  const rightAllNames = new Set<string>();
 
   for (const def of leftDoc.definitions) {
-    if ('name' in def && def.name) {
-      leftTypes.set((def.name as any).value, def);
+    const nameNode = (def as any).name as NameNode | undefined;
+    if (nameNode) {
+      leftAllNames.add(nameNode.value);
+      if (def.kind === 'ObjectTypeDefinition') {
+        leftTypes.set(nameNode.value, def as ObjectTypeDefinitionNode);
+      }
     }
   }
 
   for (const def of rightDoc.definitions) {
-    if ('name' in def && def.name) {
-      rightTypes.set((def.name as any).value, def);
+    const nameNode = (def as any).name as NameNode | undefined;
+    if (nameNode) {
+      rightAllNames.add(nameNode.value);
+      if (def.kind === 'ObjectTypeDefinition') {
+        rightTypes.set(nameNode.value, def as ObjectTypeDefinitionNode);
+      }
     }
   }
 
-  for (const [name] of rightTypes) {
-    if (!leftTypes.has(name)) {
+  for (const name of rightAllNames) {
+    if (!leftAllNames.has(name)) {
       summary.addedTypes.push(name);
     }
   }
 
-  for (const [name] of leftTypes) {
-    if (!rightTypes.has(name)) {
+  for (const name of leftAllNames) {
+    if (!rightAllNames.has(name)) {
       summary.removedTypes.push(name);
     }
   }
@@ -219,34 +224,32 @@ function computeStructuredSummary(leftSdl: string, rightSdl: string): SchemaDiff
     const rightDef = rightTypes.get(name);
     if (!rightDef) continue;
 
-    if (leftDef.kind === 'ObjectTypeDefinition' && rightDef.kind === 'ObjectTypeDefinition') {
-      const leftFields = new Map(
-        (leftDef.fields || []).map((f: FieldDefinitionNode) => [f.name.value, f])
-      );
-      const rightFields = new Map(
-        (rightDef.fields || []).map((f: FieldDefinitionNode) => [f.name.value, f])
-      );
+    const leftFields = new Map(
+      (leftDef.fields || []).map((f: FieldDefinitionNode) => [f.name.value, f])
+    );
+    const rightFields = new Map(
+      (rightDef.fields || []).map((f: FieldDefinitionNode) => [f.name.value, f])
+    );
 
-      for (const [fieldName] of rightFields) {
-        if (!leftFields.has(fieldName)) {
-          summary.addedFields.push(`${name}.${fieldName}`);
-        }
+    for (const fieldName of rightFields.keys()) {
+      if (!leftFields.has(fieldName)) {
+        summary.addedFields.push(`${name}.${fieldName}`);
       }
+    }
 
-      for (const [fieldName, leftField] of leftFields) {
-        if (!rightFields.has(fieldName)) {
-          summary.removedFields.push(`${name}.${fieldName}`);
-        } else {
-          const rightField = rightFields.get(fieldName)!;
-          const leftTypeStr = print(leftField.type);
-          const rightTypeStr = print(rightField.type);
-          if (leftTypeStr !== rightTypeStr) {
-            summary.typeChanges.push({
-              path: `${name}.${fieldName}`,
-              fromType: leftTypeStr,
-              toType: rightTypeStr,
-            });
-          }
+    for (const [fieldName, leftField] of leftFields) {
+      if (!rightFields.has(fieldName)) {
+        summary.removedFields.push(`${name}.${fieldName}`);
+      } else {
+        const rightField = rightFields.get(fieldName)!;
+        const leftTypeStr = print(leftField.type);
+        const rightTypeStr = print(rightField.type);
+        if (leftTypeStr !== rightTypeStr) {
+          summary.typeChanges.push({
+            path: `${name}.${fieldName}`,
+            fromType: leftTypeStr,
+            toType: rightTypeStr,
+          });
         }
       }
     }
