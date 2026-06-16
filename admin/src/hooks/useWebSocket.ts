@@ -14,12 +14,18 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempts = useRef(0);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const connect = useCallback(() => {
     const token = localStorage.getItem('token');
     const tenantId = localStorage.getItem('tenantId') || 'default';
 
     if (!token) {
+      return;
+    }
+
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
       return;
     }
 
@@ -33,7 +39,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       ws.onopen = () => {
         setIsConnected(true);
         reconnectAttempts.current = 0;
-        options.onConnect?.();
+        optionsRef.current.onConnect?.();
 
         heartbeatRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
@@ -50,42 +56,50 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
             setOnlineUsers(message.payload.onlineUsers);
           }
           
-          options.onMessage?.(message);
+          optionsRef.current.onMessage?.(message);
         } catch (err) {
           console.error('Failed to parse WebSocket message:', err);
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setIsConnected(false);
+        wsRef.current = null;
         if (heartbeatRef.current) {
           clearInterval(heartbeatRef.current);
+          heartbeatRef.current = null;
+        }
+
+        if (event.code === 1008) {
+          return;
         }
 
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+        reconnectAttempts.current++;
         reconnectRef.current = setTimeout(() => {
-          reconnectAttempts.current++;
           connect();
         }, delay);
       };
 
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+      ws.onerror = () => {
       };
     } catch (err) {
       console.error('Failed to create WebSocket connection:', err);
     }
-  }, [options]);
+  }, []);
 
   const disconnect = useCallback(() => {
     if (heartbeatRef.current) {
       clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
     }
     if (reconnectRef.current) {
       clearTimeout(reconnectRef.current);
+      reconnectRef.current = null;
     }
+    reconnectAttempts.current = 0;
     if (wsRef.current) {
-      wsRef.current.close();
+      wsRef.current.close(1000, 'Manual disconnect');
       wsRef.current = null;
     }
     setIsConnected(false);

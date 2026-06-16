@@ -304,13 +304,13 @@ const CollaborativeEditor: React.FC = () => {
       const result = await acquireLock(selectedSubgraph.id);
       if (result.success) {
         message.success(result.message);
-        setLockStatus(await getLockStatus(selectedSubgraph.id));
-      } else if (result.position) {
-        message.info(result.message);
-        setLockStatus(await getLockStatus(selectedSubgraph.id));
+      } else {
+        message.warning(result.message);
       }
-    } catch (err) {
-      message.error('获取编辑权失败');
+      const lock = await getLockStatus(selectedSubgraph.id);
+      setLockStatus(lock);
+    } catch (err: any) {
+      message.error(err?.response?.data?.error || '获取编辑权失败');
     }
   };
 
@@ -325,10 +325,14 @@ const CollaborativeEditor: React.FC = () => {
       
       const result = await releaseLock(selectedSubgraph.id, saveDraftFlag);
       message.success(result.message);
-      setLockStatus(await getLockStatus(selectedSubgraph.id));
       setHasUnsavedChanges(false);
-    } catch (err) {
-      message.error('释放编辑权失败');
+    } catch (err: any) {
+      message.error(err?.response?.data?.error || '释放编辑权失败');
+    } finally {
+      try {
+        const lock = await getLockStatus(selectedSubgraph.id);
+        setLockStatus(lock);
+      } catch {}
     }
   };
 
