@@ -18,7 +18,7 @@ import {
   logActivity,
 } from '../services/collaboration-service';
 import { submitSchemaChange } from '../services/approval-service';
-import { getSubgraphById, getActiveSchemaVersion } from '../services/subgraph-service';
+import { getSubgraphById, getActiveSchemaVersion, getSchemaVersionById, getLatestSchemaVersion } from '../services/subgraph-service';
 import { notificationService } from '../services/notification-service';
 
 export default async function collaborationRoutes(fastify: FastifyInstance) {
@@ -180,11 +180,30 @@ export default async function collaborationRoutes(fastify: FastifyInstance) {
     const { subgraphId } = request.params as { subgraphId: string };
     const tenantId = request.tenantId!;
 
-    const version = await getActiveSchemaVersion(subgraphId);
-    if (!version) {
-      reply.status(404).send({ error: 'No active schema version found' });
+    const subgraph = await getSubgraphById(subgraphId, tenantId);
+    if (!subgraph) {
+      reply.status(404).send({ error: 'Subgraph not found' });
       return;
     }
+
+    let version = null;
+
+    if (subgraph.current_version_id) {
+      version = await getSchemaVersionById(subgraph.current_version_id);
+    }
+
+    if (!version) {
+      version = await getActiveSchemaVersion(subgraphId);
+    }
+
+    if (!version) {
+      version = await getLatestSchemaVersion(subgraphId);
+    }
+
+    if (!version) {
+      return { sdl: '', versionId: null, version: 0 };
+    }
+
     return { sdl: version.sdl, versionId: version.id, version: version.version };
   });
 

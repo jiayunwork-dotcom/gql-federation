@@ -170,12 +170,20 @@ const CollaborativeEditor: React.FC = () => {
         try {
           const result = await validateSDL(sdl);
           setValidation(result);
-        } catch (err) {
+        } catch (err: any) {
           console.error('Validation error:', err);
+          setValidation({
+            valid: false,
+            errors: [{
+              line: 1,
+              column: 1,
+              message: err?.response?.data?.error || err?.message || '校验服务不可用',
+            }],
+          });
         }
-      }, 500);
+      }, 300);
     } else {
-      setValidation(null);
+      setValidation({ valid: true });
     }
     return () => {
       if (validationTimeout.current) {
@@ -220,23 +228,38 @@ const CollaborativeEditor: React.FC = () => {
   const loadSubgraphData = async (subgraphId: string) => {
     setIsLoading(true);
     try {
-      const [schema, lock, activity, onlineUsers] = await Promise.all([
+      const [schemaResult, lockResult, activityResult, onlineResult] = await Promise.allSettled([
         getCurrentSchema(subgraphId),
         getLockStatus(subgraphId),
         getActivityLogs(subgraphId, 50, 0),
         getOnlineUsers(subgraphId),
       ]);
 
-      setSdl(schema.sdl);
-      setOriginalSdl(schema.sdl);
+      if (schemaResult.status === 'fulfilled') {
+        setSdl(schemaResult.value.sdl || '');
+        setOriginalSdl(schemaResult.value.sdl || '');
+      } else {
+        console.error('Load schema error:', schemaResult.reason);
+        setSdl('');
+        setOriginalSdl('');
+      }
       setHasUnsavedChanges(false);
-      setLockStatus(lock);
-      setActivityLogs(activity.logs);
-      setHasMoreLogs(activity.hasMore);
-      setActivityOffset(50);
-      setViewers(onlineUsers);
-      setValidation(null);
+
+      if (lockResult.status === 'fulfilled') {
+        setLockStatus(lockResult.value);
+      }
+
+      if (activityResult.status === 'fulfilled') {
+        setActivityLogs(activityResult.value.logs);
+        setHasMoreLogs(activityResult.value.hasMore);
+        setActivityOffset(50);
+      }
+
+      if (onlineResult.status === 'fulfilled') {
+        setViewers(onlineResult.value);
+      }
     } catch (err) {
+      console.error('Load subgraph data error:', err);
       message.error('加载Schema数据失败');
     } finally {
       setIsLoading(false);

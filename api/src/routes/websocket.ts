@@ -4,9 +4,9 @@ import { getTenantByName } from '../services/tenant-service';
 
 export default async function websocketRoutes(fastify: FastifyInstance) {
   fastify.get('/ws/notifications', { websocket: true }, async (connection, request) => {
-    const token = request.headers['sec-websocket-protocol'] as string;
-    const query = request.query as { tenant?: string };
-    const tenantName = query.tenant || request.headers['x-tenant-id'] as string;
+    const query = request.query as { tenant?: string; token?: string };
+    const tenantName = query.tenant || (request.headers['x-tenant-id'] as string);
+    const token = query.token || (request.headers['sec-websocket-protocol'] as string);
 
     if (!token) {
       connection.socket.close(1008, 'Missing authentication token');
