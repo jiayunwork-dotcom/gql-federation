@@ -272,15 +272,32 @@ export async function computeSchemaDiff(
     throw new Error('Right version not found');
   }
 
-  const leftSdl = leftVersion.sdl;
-  const rightSdl = rightVersion.sdl;
+  const leftSdl = String(leftVersion.sdl || '');
+  const rightSdl = String(rightVersion.sdl || '');
+
+  if (!leftSdl.trim()) {
+    throw new Error('Left version SDL is empty');
+  }
+  if (!rightSdl.trim()) {
+    throw new Error('Right version SDL is empty');
+  }
 
   const { leftLines, rightLines, typeSections } = computeLineDiff(leftSdl, rightSdl);
   const structuredSummary = computeStructuredSummary(leftSdl, rightSdl);
 
   return {
-    leftLines,
-    rightLines,
+    leftLines: leftLines.map(l => ({
+      lineNumber: l.lineNumber,
+      content: String(l.content ?? ''),
+      type: l.type,
+      typeName: l.typeName,
+    })),
+    rightLines: rightLines.map(l => ({
+      lineNumber: l.lineNumber,
+      content: String(l.content ?? ''),
+      type: l.type,
+      typeName: l.typeName,
+    })),
     structuredSummary,
     typeSections,
   };

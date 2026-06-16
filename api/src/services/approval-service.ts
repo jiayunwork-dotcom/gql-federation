@@ -3,6 +3,7 @@ import { SchemaChangeApproval, ApprovalStatus, DiffSummary, ChangeSummary } from
 import { getSubgraphById, getLatestSchemaVersion, getActiveSubgraphsWithSchema } from './subgraph-service';
 import { composeSchemas, detectChanges, validateSchemaSize } from './schema-composition';
 import { composeAndPublishSupergraph } from './supergraph-service';
+import { getTenantById } from './tenant-service';
 
 export interface SubmitApprovalInput {
   tenantId: string;
@@ -111,9 +112,24 @@ export async function submitSchemaChange(input: SubmitApprovalInput): Promise<{ 
     throw new Error('Subgraph not found');
   }
 
+  if (!subgraph.name) {
+    throw new Error('Subgraph name is missing');
+  }
+
   if (!input.changelog || input.changelog.trim().length < 2) {
     throw new Error('变更说明不能为空且至少需要2个字符');
   }
+
+  if (!input.submittedBy) {
+    throw new Error('提交人不能为空');
+  }
+
+  const tenant = await getTenantById(input.tenantId);
+  if (!tenant) {
+    throw new Error('Tenant not found');
+  }
+
+  const changelog = input.changelog.trim();
 
   const latestVersion = await getLatestSchemaVersion(input.subgraphId);
   const latestSdl = latestVersion?.sdl || null;
@@ -122,12 +138,16 @@ export async function submitSchemaChange(input: SubmitApprovalInput): Promise<{ 
 
   const nextVersion = latestVersion ? latestVersion.version + 1 : 1;
 
-  const sizeCheck = validateSchemaSize(input.sdl, 500);
+  const sizeCheck = validateSchemaSize(input.sdl, tenant.max_schema_size_kb);
+  if (!sizeCheck.valid) {
+    throw new Error(`Schema size exceeds maximum allowed size of ${tenant.max_schema_size_kb}KB`);
+  }
+
   const versionResult = await query<any>(
     `INSERT INTO schema_versions (subgraph_id, tenant_id, version, sdl, schema_size_bytes, change_summary, is_active, published_by)
      VALUES ($1, $2, $3, $4, $5, $6, false, $7)
      RETURNING *`,
-    [input.subgraphId, input.tenantId, nextVersion, input.sdl, sizeCheck.sizeBytes, JSON.stringify(changes), input.submittedBy || null]
+    [input.subgraphId, input.tenantId, nextVersion, input.sdl, sizeCheck.sizeBytes, JSON.stringify(changes), input.submittedBy]
   );
 
   const version = versionResult.rows[0];
@@ -143,7 +163,7 @@ export async function submitSchemaChange(input: SubmitApprovalInput): Promise<{ 
       subgraph.name,
       version.id,
       input.submittedBy,
-      input.changelog || null,
+      changelog,
       JSON.stringify(diffSummary),
     ]
   );

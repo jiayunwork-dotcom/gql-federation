@@ -138,32 +138,61 @@ function DependencyGraph() {
   const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null);
   const [nodeDrawerVisible, setNodeDrawerVisible] = useState(false);
   const [edgeDrawerVisible, setEdgeDrawerVisible] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragRef = useRef<{ nodeId: string; startX: number; startY: number; nodeStartX: number; nodeStartY: number } | null>(null);
   const [layoutNodes, setLayoutNodes] = useState<GraphNode[]>([]);
+  const [containerSize, setContainerSize] = useState({ width: 900, height: 600 });
 
   useEffect(() => {
     loadGraph();
   }, []);
 
   useEffect(() => {
-    if (graph && graph.nodes.length > 0) {
-      const svgEl = svgRef.current;
-      const width = svgEl?.clientWidth || 900;
-      const height = svgEl?.clientHeight || 600;
+    if (!containerRef.current) return;
 
+    const updateSize = () => {
+      if (containerRef.current) {
+        setContainerSize({
+          width: containerRef.current.clientWidth || 900,
+          height: 600,
+        });
+      }
+    };
+
+    updateSize();
+
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(containerRef.current);
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (graph && graph.nodes.length > 0 && containerSize.width > 0) {
       const nodes: GraphNode[] = graph.nodes.map(n => ({
         ...n,
-        x: 0,
-        y: 0,
+        x: containerSize.width / 2,
+        y: containerSize.height / 2,
         vx: 0,
         vy: 0,
       }));
 
-      forceLayout(nodes, graph.edges, width, height, 300);
+      if (nodes.length === 1) {
+        nodes[0].x = containerSize.width / 2;
+        nodes[0].y = containerSize.height / 2;
+      } else {
+        forceLayout(nodes, graph.edges, containerSize.width, containerSize.height, 300);
+      }
+
+      nodes.forEach(n => {
+        n.vx = 0;
+        n.vy = 0;
+      });
+
       setLayoutNodes(nodes);
     }
-  }, [graph]);
+  }, [graph, containerSize]);
 
   const loadGraph = async () => {
     setLoading(true);
@@ -180,12 +209,22 @@ function DependencyGraph() {
   const nodeRadius = 38;
   const nodeMap = new Map(layoutNodes.map(n => [n.name, n]));
 
-  const handleMouseDown = useCallback((e: React.MouseEvent, nodeId: string) => {
+  const handleMouseDown = useCallback((e: React.MouseEvent, nodeName: string) => {
     e.preventDefault();
-    const node = layoutNodes.find(n => n.id === nodeId || n.name === nodeId);
+    e.stopPropagation();
+    const node = layoutNodes.find(n => n.name === nodeName);
     if (!node) return;
+
+    setLayoutNodes(prev =>
+      prev.map(n =>
+        n.name === nodeName
+          ? { ...n, vx: 0, vy: 0 }
+          : n
+      )
+    );
+
     dragRef.current = {
-      nodeId: node.name,
+      nodeId: nodeName,
       startX: e.clientX,
       startY: e.clientY,
       nodeStartX: node.x,
@@ -199,7 +238,7 @@ function DependencyGraph() {
       setLayoutNodes(prev =>
         prev.map(n =>
           n.name === dragRef.current!.nodeId
-            ? { ...n, x: dragRef.current!.nodeStartX + dx, y: dragRef.current!.nodeStartY + dy }
+            ? { ...n, x: dragRef.current!.nodeStartX + dx, y: dragRef.current!.nodeStartY + dy, vx: 0, vy: 0 }
             : n
         )
       );
@@ -245,12 +284,13 @@ function DependencyGraph() {
   return (
     <div>
       <Card title="SubGraph 依赖关系图" extra={<span style={{ color: '#999', fontSize: 12 }}>拖拽节点可调整位置 | 悬停节点高亮关联边 | 点击查看详情</span>}>
-        <svg
-          ref={svgRef}
-          width="100%"
-          height={600}
-          style={{ border: '1px solid #f0f0f0', borderRadius: 8, background: '#fafafa' }}
-        >
+        <div ref={containerRef} style={{ width: '100%' }}>
+          <svg
+            ref={svgRef}
+            width="100%"
+            height={600}
+            style={{ border: '1px solid #f0f0f0', borderRadius: 8, background: '#fafafa' }}
+          >
           <defs>
             <marker
               id="arrowhead"
@@ -367,6 +407,7 @@ function DependencyGraph() {
             );
           })}
         </svg>
+        </div>
       </Card>
 
       <Drawer
