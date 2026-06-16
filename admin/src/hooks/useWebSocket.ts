@@ -24,7 +24,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/notifications`;
+    const wsUrl = `${protocol}//${window.location.host}/ws/notifications?tenant=${encodeURIComponent(tenantId)}`;
 
     try {
       const ws = new WebSocket(wsUrl, token);

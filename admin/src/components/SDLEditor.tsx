@@ -49,7 +49,7 @@ const tokenizeSDL = (sdl: string): Array<{ type: string; value: string; start: n
       }
       const word = sdl.slice(i, end);
       let type = 'field';
-      
+
       if (KEYWORDS.includes(word)) {
         type = 'keyword';
       } else if (BUILTIN_TYPES.includes(word)) {
@@ -59,7 +59,7 @@ const tokenizeSDL = (sdl: string): Array<{ type: string; value: string; start: n
       } else if (sdl[end] === '(' || /^[a-z]/.test(word)) {
         type = 'field';
       }
-      
+
       tokens.push({ type, value: word, start: i, end });
       i = end;
       continue;
@@ -88,6 +88,12 @@ const tokenizeSDL = (sdl: string): Array<{ type: string; value: string; start: n
   return tokens;
 };
 
+const LINE_NUMBER_WIDTH = 40;
+const EDITOR_PADDING = 12;
+const LINE_HEIGHT = 20;
+const FONT_FAMILY = 'Monaco, Menlo, "Ubuntu Mono", Consolas, monospace';
+const FONT_SIZE = 14;
+
 const SDLEditor: React.FC<SDLEditorProps> = ({
   value,
   onChange,
@@ -96,15 +102,25 @@ const SDLEditor: React.FC<SDLEditorProps> = ({
   height = 400,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const preRef = useRef<HTMLPreElement>(null);
-  const codeRef = useRef<HTMLElement>(null);
+  const highlightRef = useRef<HTMLDivElement>(null);
+  const lineNumbersRef = useRef<HTMLDivElement>(null);
 
   const tokens = useMemo(() => tokenizeSDL(value), [value]);
 
-  const handleScroll = useCallback(() => {
-    if (textareaRef.current && preRef.current) {
-      preRef.current.scrollTop = textareaRef.current.scrollTop;
-      preRef.current.scrollLeft = textareaRef.current.scrollLeft;
+  const syncScroll = useCallback(() => {
+    const textarea = textareaRef.current;
+    const highlight = highlightRef.current;
+    const lineNumbers = lineNumbersRef.current;
+    if (!textarea) return;
+
+    const { scrollTop, scrollLeft } = textarea;
+
+    if (highlight) {
+      highlight.style.transform = `translate(${-scrollLeft}px, ${-scrollTop}px)`;
+    }
+
+    if (lineNumbers) {
+      lineNumbers.style.transform = `translateY(${-scrollTop}px)`;
     }
   }, []);
 
@@ -113,15 +129,15 @@ const SDLEditor: React.FC<SDLEditorProps> = ({
   }, [onChange]);
 
   useEffect(() => {
-    handleScroll();
-  }, [value, handleScroll]);
+    syncScroll();
+  }, [value, syncScroll]);
 
   const renderHighlightedCode = () => {
     const elements: React.ReactNode[] = [];
     for (let i = 0; i < tokens.length; i++) {
       const token = tokens[i];
       let className = '';
-      
+
       switch (token.type) {
         case 'keyword':
           className = 'sdl-keyword';
@@ -159,84 +175,93 @@ const SDLEditor: React.FC<SDLEditorProps> = ({
     return elements;
   };
 
-  const getErrorMarker = () => {
-    if (!validation || validation.valid) return null;
-    
-    const error = validation.errors?.[0];
-    if (!error) return null;
-
-    return (
-      <span className="validation-error-marker" style={{
-        position: 'absolute',
-        left: '10px',
-        top: `${(error.line - 1) * 20}px`,
-        color: '#ff4d4f',
-        fontWeight: 'bold',
-      }}>
-        ▶
-      </span>
-    );
-  };
+  const lineCount = value.split('\n').length;
 
   return (
     <div className="sdl-editor-container">
-      <div className="sdl-editor-wrapper" style={{ position: 'relative', height }}>
-        <pre
-          ref={preRef}
-          aria-hidden="true"
-          className="sdl-editor-highlight"
+      <div className="sdl-editor-wrapper" style={{ position: 'relative', height, overflow: 'hidden' }}>
+        <div
           style={{
             position: 'absolute',
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
-            margin: 0,
-            padding: '12px 12px 12px 40px',
-            overflow: 'auto',
             backgroundColor: '#1e1e1e',
-            color: '#d4d4d4',
-            fontFamily: 'Monaco, Menlo, "Ubuntu Mono", Consolas, monospace',
-            fontSize: '14px',
-            lineHeight: '20px',
-            whiteSpace: 'pre',
-            wordWrap: 'normal',
-            pointerEvents: 'none',
-            zIndex: 1,
+            overflow: 'hidden',
           }}
         >
-          <code ref={codeRef}>{renderHighlightedCode()}</code>
-        </pre>
-        
-        {getErrorMarker()}
-        
-        <div className="sdl-line-numbers" style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          bottom: 0,
-          width: '30px',
-          padding: '12px 5px',
-          backgroundColor: '#252526',
-          color: '#858585',
-          fontFamily: 'Monaco, Menlo, "Ubuntu Mono", Consolas, monospace',
-          fontSize: '12px',
-          lineHeight: '20px',
-          textAlign: 'right',
-          userSelect: 'none',
-          zIndex: 2,
-          overflow: 'hidden',
-        }}>
-          {value.split('\n').map((_, i) => (
-            <div key={i}>{i + 1}</div>
-          ))}
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: LINE_NUMBER_WIDTH,
+              bottom: 0,
+              backgroundColor: '#252526',
+              zIndex: 4,
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              ref={lineNumbersRef}
+              style={{
+                padding: `${EDITOR_PADDING}px 5px ${EDITOR_PADDING}px 0`,
+                color: '#858585',
+                fontFamily: FONT_FAMILY,
+                fontSize: 12,
+                lineHeight: `${LINE_HEIGHT}px`,
+                textAlign: 'right',
+                userSelect: 'none',
+                willChange: 'transform',
+              }}
+            >
+              {Array.from({ length: lineCount }, (_, i) => (
+                <div key={i}>{i + 1}</div>
+              ))}
+            </div>
+          </div>
+
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: LINE_NUMBER_WIDTH,
+              right: 0,
+              bottom: 0,
+              overflow: 'hidden',
+              zIndex: 1,
+            }}
+          >
+            <pre
+              aria-hidden="true"
+              style={{
+                margin: 0,
+                padding: `${EDITOR_PADDING}px`,
+                color: '#d4d4d4',
+                fontFamily: FONT_FAMILY,
+                fontSize: FONT_SIZE,
+                lineHeight: `${LINE_HEIGHT}px`,
+                whiteSpace: 'pre',
+                wordWrap: 'normal',
+                pointerEvents: 'none',
+              }}
+            >
+              <div
+                ref={highlightRef}
+                style={{ willChange: 'transform' }}
+              >
+                <code>{renderHighlightedCode()}</code>
+              </div>
+            </pre>
+          </div>
         </div>
 
         <textarea
           ref={textareaRef}
           value={value}
           onChange={handleChange}
-          onScroll={handleScroll}
+          onScroll={syncScroll}
           readOnly={readOnly}
           spellCheck={false}
           style={{
@@ -246,19 +271,19 @@ const SDLEditor: React.FC<SDLEditorProps> = ({
             right: 0,
             bottom: 0,
             margin: 0,
-            padding: '12px 12px 12px 40px',
+            padding: `${EDITOR_PADDING}px ${EDITOR_PADDING}px ${EDITOR_PADDING}px ${LINE_NUMBER_WIDTH + EDITOR_PADDING}px`,
             width: '100%',
             height: '100%',
             backgroundColor: 'transparent',
             color: 'transparent',
             caretColor: '#d4d4d4',
-            fontFamily: 'Monaco, Menlo, "Ubuntu Mono", Consolas, monospace',
-            fontSize: '14px',
-            lineHeight: '20px',
+            fontFamily: FONT_FAMILY,
+            fontSize: FONT_SIZE,
+            lineHeight: `${LINE_HEIGHT}px`,
             border: 'none',
             outline: 'none',
             resize: 'none',
-            zIndex: 3,
+            zIndex: 5,
             overflow: 'auto',
             cursor: readOnly ? 'not-allowed' : 'text',
           }}

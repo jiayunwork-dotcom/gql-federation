@@ -1,4 +1,4 @@
-import { WebSocket } from '@fastify/websocket';
+import { WebSocket } from 'ws';
 import { NotificationMessage, NotificationEventType, OnlineUser } from '../types';
 import { verifyToken, getUserById } from './auth-service';
 
