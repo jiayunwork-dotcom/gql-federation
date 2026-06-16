@@ -76,6 +76,8 @@ const CollaborativeEditor: React.FC = () => {
   const [activityOffset, setActivityOffset] = useState(0);
   const [viewers, setViewers] = useState<Array<{ userId: string; userName: string; userEmail: string }>>([]);
   const [drafts, setDrafts] = useState<DraftType[]>([]);
+  const [draftsLoading, setDraftsLoading] = useState(false);
+  const [draftsError, setDraftsError] = useState<string | null>(null);
   const [draftsModalVisible, setDraftsModalVisible] = useState(false);
   const [submitModalVisible, setSubmitModalVisible] = useState(false);
   const [changelog, setChangelog] = useState('');
@@ -217,11 +219,16 @@ const CollaborativeEditor: React.FC = () => {
   };
 
   const loadDrafts = async () => {
+    setDraftsLoading(true);
+    setDraftsError(null);
     try {
       const data = await getDrafts();
       setDrafts(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Load drafts error:', err);
+      setDraftsError(err?.response?.data?.error || '加载草稿失败');
+    } finally {
+      setDraftsLoading(false);
     }
   };
 
@@ -422,8 +429,43 @@ const CollaborativeEditor: React.FC = () => {
     return lockStatus.waitingQueue.find(w => w.userId === user.id) || null;
   }, [lockStatus, user]);
 
-  const draftsMenu: MenuProps = {
-    items: drafts.map((draft) => ({
+  const getDraftsMenuItems = (): MenuProps['items'] => {
+    if (draftsLoading) {
+      return [
+        {
+          key: 'loading',
+          label: <div style={{ padding: '12px 16px', color: '#8c8c8c', textAlign: 'center' }}>加载中...</div>,
+          disabled: true,
+        },
+      ];
+    }
+
+    if (draftsError) {
+      return [
+        {
+          key: 'error',
+          label: (
+            <div style={{ padding: '12px 16px', textAlign: 'center' }}>
+              <div style={{ color: '#ff4d4f', marginBottom: 8 }}>{draftsError}</div>
+              <Button size="small" onClick={loadDrafts}>重试</Button>
+            </div>
+          ),
+          disabled: true,
+        },
+      ];
+    }
+
+    if (drafts.length === 0) {
+      return [
+        {
+          key: 'empty',
+          label: <div style={{ padding: '20px 16px', color: '#8c8c8c', textAlign: 'center' }}>暂无草稿</div>,
+          disabled: true,
+        },
+      ];
+    }
+
+    return drafts.map((draft) => ({
       key: draft.id,
       label: (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 300 }}>
@@ -444,7 +486,11 @@ const CollaborativeEditor: React.FC = () => {
           </Space>
         </div>
       ),
-    })),
+    }));
+  };
+
+  const draftsMenu: MenuProps = {
+    items: getDraftsMenuItems(),
   };
 
   const getLockBanner = () => {
@@ -559,7 +605,7 @@ const CollaborativeEditor: React.FC = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ margin: 0 }}>SubGraph 列表</h3>
             <Space>
-              <Dropdown menu={draftsMenu} trigger={['click']} disabled={drafts.length === 0}>
+              <Dropdown menu={draftsMenu} trigger={['click']}>
                 <Button size="small" icon={<FileTextOutlined />}>
                   我的草稿 {drafts.length > 0 && <Badge count={drafts.length} size="small" />}
                 </Button>

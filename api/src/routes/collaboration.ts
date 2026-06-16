@@ -32,17 +32,13 @@ export default async function collaborationRoutes(fastify: FastifyInstance) {
     return { drafts };
   });
 
-  fastify.get('/drafts/:subgraphId', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/drafts/:subgraphId', async (request: FastifyRequest) => {
     const { subgraphId } = request.params as { subgraphId: string };
     const tenantId = request.tenantId!;
     const userId = request.user!.id;
 
     const draft = await getDraftByUserAndSubgraph(tenantId, subgraphId, userId);
-    if (!draft) {
-      reply.status(404).send({ error: 'Draft not found' });
-      return;
-    }
-    return { draft };
+    return { draft: draft || null };
   });
 
   fastify.post('/drafts/:subgraphId', async (request: FastifyRequest, reply: FastifyReply) => {

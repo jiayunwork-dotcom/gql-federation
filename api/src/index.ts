@@ -30,12 +30,15 @@ export async function buildApp() {
     credentials: true,
   });
 
-  await fastify.register(fastifyRateLimit, {
-    max: 1000,
-    timeWindow: '1 minute',
-  });
-
   await fastify.register(fastifyWebsocket);
+
+  await fastify.register(fastifyRateLimit, {
+    max: 5000,
+    timeWindow: '1 minute',
+    allowList: (req: any) => {
+      return req.url?.startsWith('/ws/') || false;
+    },
+  });
 
   fastify.get('/health', async () => {
     return { status: 'ok', timestamp: new Date().toISOString() };
