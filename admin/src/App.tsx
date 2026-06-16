@@ -12,6 +12,7 @@ import {
   AuditOutlined,
   ApartmentOutlined,
   DiffOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { useAuth } from './store/auth';
 import Login from './pages/Login';
@@ -26,6 +27,7 @@ import ChangeHistory from './pages/ChangeHistory';
 import Approvals from './pages/Approvals';
 import DependencyGraph from './pages/DependencyGraph';
 import SchemaDiff from './pages/SchemaDiff';
+import CollaborativeEditor from './pages/CollaborativeEditor';
 
 const { Header, Sider, Content } = Layout;
 
@@ -48,6 +50,7 @@ function App() {
   const menuItems = [
     { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
     { key: '/subgraphs', icon: <AppstoreOutlined />, label: 'SubGraph 管理' },
+    { key: '/collaboration', icon: <TeamOutlined />, label: '协作编辑' },
     { key: '/approvals', icon: <AuditOutlined />, label: '变更审批' },
     { key: '/dependency-graph', icon: <ApartmentOutlined />, label: '依赖关系' },
     { key: '/schema', icon: <FileTextOutlined />, label: 'Schema 浏览' },
@@ -87,6 +90,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/subgraphs" element={<Subgraphs />} />
+            <Route path="/collaboration" element={<CollaborativeEditor />} />
             <Route path="/approvals" element={<Approvals />} />
             <Route path="/dependency-graph" element={<DependencyGraph />} />
             <Route path="/schema" element={<SchemaBrowser />} />

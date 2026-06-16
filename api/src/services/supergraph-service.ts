@@ -3,6 +3,7 @@ import { cacheSet, cacheDel, cacheGet } from '../cache';
 import { SupergraphVersion, SupergraphStatus, Tenant, CompositionLog, SubgraphVersionRef } from '../types';
 import { composeSchemas, validateSchemaSize } from './schema-composition';
 import { getActiveSubgraphsWithSchema, getSchemaVersionById } from './subgraph-service';
+import { notificationService } from './notification-service';
 
 const SUPERGRAPH_CACHE_KEY = 'supergraph:current:';
 
@@ -145,6 +146,9 @@ export async function composeAndPublishSupergraph(
     durationMs
   );
 
+  notificationService.notifySupergraphPublished(tenantId, nextVersion, compositionResult);
+  notificationService.notifyGrayscaleProgress(tenantId, nextVersion, 10, 0, 0);
+
   return {
     success: true,
     supergraph,
@@ -160,6 +164,7 @@ async function getLatestSupergraphVersion(tenantId: string): Promise<SupergraphV
 }
 
 export async function promoteGrayscaleToActive(supergraphId: string, tenantId: string): Promise<SupergraphVersion | null> {
+  const current = await getCurrentSupergraph(tenantId);
   const result = await query<SupergraphVersion>(
     `UPDATE supergraph_versions SET status = 'active' WHERE id = $1 AND tenant_id = $2 AND status = 'grayscale' RETURNING *`,
     [supergraphId, tenantId]
@@ -167,6 +172,9 @@ export async function promoteGrayscaleToActive(supergraphId: string, tenantId: s
 
   if (result.rows.length > 0) {
     await cacheDel(SUPERGRAPH_CACHE_KEY + tenantId);
+    if (current) {
+      notificationService.notifyGrayscaleProgress(tenantId, current.version, 100, current.error_count, current.total_count);
+    }
     return result.rows[0];
   }
   return null;

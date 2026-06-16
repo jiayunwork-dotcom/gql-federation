@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyRateLimit from '@fastify/rate-limit';
+import fastifyWebsocket from '@fastify/websocket';
 import config from './config';
 import { getDbPool } from './db';
 import { getRedisClient } from './cache';
@@ -15,6 +16,8 @@ import alertRoutes from './routes/alerts';
 import approvalRoutes from './routes/approvals';
 import dependencyGraphRoutes from './routes/dependency-graph';
 import schemaDiffRoutes from './routes/schema-diff';
+import websocketRoutes from './routes/websocket';
+import collaborationRoutes from './routes/collaboration';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -32,6 +35,8 @@ export async function buildApp() {
     timeWindow: '1 minute',
   });
 
+  await fastify.register(fastifyWebsocket);
+
   fastify.get('/health', async () => {
     return { status: 'ok', timestamp: new Date().toISOString() };
   });
@@ -45,6 +50,8 @@ export async function buildApp() {
   fastify.register(approvalRoutes, { prefix: '/api/approvals' });
   fastify.register(dependencyGraphRoutes, { prefix: '/api/dependency-graph' });
   fastify.register(schemaDiffRoutes, { prefix: '/api/schema-diff' });
+  fastify.register(collaborationRoutes, { prefix: '/api/collaboration' });
+  fastify.register(websocketRoutes);
 
   fastify.setErrorHandler((error, request, reply) => {
     console.error('Error:', error);

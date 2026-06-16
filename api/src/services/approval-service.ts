@@ -4,6 +4,8 @@ import { getSubgraphById, getLatestSchemaVersion, getActiveSubgraphsWithSchema }
 import { composeSchemas, detectChanges, validateSchemaSize } from './schema-composition';
 import { composeAndPublishSupergraph } from './supergraph-service';
 import { getTenantById } from './tenant-service';
+import { notificationService } from './notification-service';
+import { logActivity } from './collaboration-service';
 
 export interface SubmitApprovalInput {
   tenantId: string;
@@ -252,6 +254,29 @@ export async function approveSchemaChange(
 
   await composeAndPublishSupergraph(tenantId, reviewedBy);
 
+  notificationService.notifyApprovalStatusChanged(
+    tenantId,
+    approval.subgraph_id,
+    approval.subgraph_name,
+    approval.status,
+    'approved',
+    reviewedBy
+  );
+
+  await logActivity(
+    tenantId,
+    approval.subgraph_id,
+    approval.subgraph_name,
+    undefined,
+    undefined,
+    reviewedBy,
+    'change_approved',
+    {
+      approvalId,
+      changelog: approval.changelog,
+    }
+  );
+
   const updated = await getApprovalById(approvalId, tenantId);
   return { success: true, approval: updated! };
 }
@@ -276,6 +301,30 @@ export async function rejectSchemaChange(
      SET status = 'rejected', reviewed_by = $1, review_comment = $2, reviewed_at = NOW()
      WHERE id = $3`,
     [reviewedBy, reason, approvalId]
+  );
+
+  notificationService.notifyApprovalStatusChanged(
+    tenantId,
+    approval.subgraph_id,
+    approval.subgraph_name,
+    approval.status,
+    'rejected',
+    reviewedBy
+  );
+
+  await logActivity(
+    tenantId,
+    approval.subgraph_id,
+    approval.subgraph_name,
+    undefined,
+    undefined,
+    reviewedBy,
+    'change_rejected',
+    {
+      approvalId,
+      changelog: approval.changelog,
+      reason,
+    }
   );
 
   const updated = await getApprovalById(approvalId, tenantId);

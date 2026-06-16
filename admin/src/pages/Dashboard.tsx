@@ -87,7 +87,7 @@ function Dashboard() {
       key: 'error_rate',
       render: (val: number) => (
         <Progress 
-          percent={val?.toFixed(2) || 0} 
+          percent={Number(val?.toFixed(2)) || 0} 
           size="small"
           status={val > 5 ? 'exception' : val > 2 ? 'normal' : 'success'}
         />

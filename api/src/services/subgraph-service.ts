@@ -88,6 +88,14 @@ export async function getLatestSchemaVersion(subgraphId: string): Promise<Schema
   return result.rows[0] || null;
 }
 
+export async function getActiveSchemaVersion(subgraphId: string): Promise<SchemaVersion | null> {
+  const result = await query<SchemaVersion>(
+    'SELECT * FROM schema_versions WHERE subgraph_id = $1 AND is_active = true LIMIT 1',
+    [subgraphId]
+  );
+  return result.rows[0] || null;
+}
+
 export async function createSubgraph(input: CreateSubgraphInput): Promise<{ subgraph: Subgraph; version: SchemaVersion }> {
   const tenantResult = await query<Tenant>(
     'SELECT * FROM tenants WHERE id = $1',
@@ -318,6 +326,7 @@ export default {
   getSchemaVersions,
   getSchemaVersionById,
   getLatestSchemaVersion,
+  getActiveSchemaVersion,
   createSubgraph,
   updateSubgraphSchema,
   rollbackSchemaVersion,
