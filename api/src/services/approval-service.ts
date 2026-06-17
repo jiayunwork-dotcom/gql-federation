@@ -6,6 +6,7 @@ import { composeAndPublishSupergraph } from './supergraph-service';
 import { getTenantById } from './tenant-service';
 import { notificationService } from './notification-service';
 import { logActivity } from './collaboration-service';
+import { generateNextVersion, updateSchemaVersionWithSemantic } from './version-management-service';
 
 export interface SubmitApprovalInput {
   tenantId: string;
@@ -228,6 +229,19 @@ export async function approveSchemaChange(
 
   const latestVersion = await getLatestSchemaVersion(approval.subgraph_id);
 
+  const hasBreakingChanges = version.change_summary?.breakingChanges?.length > 0;
+  const compatibility = hasBreakingChanges ? 'BREAKING' : 'COMPATIBLE';
+  
+  const semanticVersion = await generateNextVersion(approval.subgraph_id, compatibility);
+  await updateSchemaVersionWithSemantic(
+    version.id,
+    semanticVersion.major,
+    semanticVersion.minor,
+    semanticVersion.patch,
+    semanticVersion.versionString,
+    compatibility
+  );
+
   await query(
     'UPDATE schema_versions SET is_active = true WHERE id = $1',
     [version.id]
@@ -243,6 +257,25 @@ export async function approveSchemaChange(
   await query(
     'UPDATE subgraphs SET current_version_id = $1 WHERE id = $2',
     [version.id, approval.subgraph_id]
+  );
+
+  await query(
+    `INSERT INTO release_audit_logs 
+     (tenant_id, subgraph_id, subgraph_name, action_type, 
+      old_version_id, new_version_id, old_version_string, new_version_string, 
+      operator, reason, metadata)
+     VALUES ($1, $2, $3, 'version_published', $4, $5, $6, $7, $8, $9, '{}'::jsonb)`,
+    [
+      tenantId,
+      approval.subgraph_id,
+      approval.subgraph_name,
+      latestVersion?.id || null,
+      version.id,
+      latestVersion?.version_string || null,
+      semanticVersion.versionString,
+      reviewedBy,
+      approval.changelog || 'Version approved and published',
+    ]
   );
 
   await query(

@@ -18,6 +18,9 @@ import dependencyGraphRoutes from './routes/dependency-graph';
 import schemaDiffRoutes from './routes/schema-diff';
 import websocketRoutes from './routes/websocket';
 import collaborationRoutes from './routes/collaboration';
+import versionManagementRoutes from './routes/version-management';
+import canaryRoutes from './routes/canary';
+import releaseAuditRoutes from './routes/release-audit';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -54,6 +57,9 @@ export async function buildApp() {
   fastify.register(dependencyGraphRoutes, { prefix: '/api/dependency-graph' });
   fastify.register(schemaDiffRoutes, { prefix: '/api/schema-diff' });
   fastify.register(collaborationRoutes, { prefix: '/api/collaboration' });
+  fastify.register(versionManagementRoutes, { prefix: '/api/versions' });
+  fastify.register(canaryRoutes, { prefix: '/api/canary' });
+  fastify.register(releaseAuditRoutes, { prefix: '/api/release-audit' });
   fastify.register(websocketRoutes);
 
   fastify.setErrorHandler((error, request, reply) => {

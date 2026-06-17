@@ -13,6 +13,7 @@ import {
   ApartmentOutlined,
   DiffOutlined,
   TeamOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import { useAuth } from './store/auth';
 import Login from './pages/Login';
@@ -28,6 +29,7 @@ import Approvals from './pages/Approvals';
 import DependencyGraph from './pages/DependencyGraph';
 import SchemaDiff from './pages/SchemaDiff';
 import CollaborativeEditor from './pages/CollaborativeEditor';
+import VersionManagement from './pages/VersionManagement';
 
 const { Header, Sider, Content } = Layout;
 
@@ -54,6 +56,7 @@ function App() {
     { key: '/approvals', icon: <AuditOutlined />, label: '变更审批' },
     { key: '/dependency-graph', icon: <ApartmentOutlined />, label: '依赖关系' },
     { key: '/schema', icon: <FileTextOutlined />, label: 'Schema 浏览' },
+    { key: '/versions', icon: <HistoryOutlined />, label: '版本管理' },
     { key: '/changes', icon: <LineChartOutlined />, label: '变更历史' },
     { key: '/schema-diff', icon: <DiffOutlined />, label: '版本 Diff' },
     { key: '/query-analyzer', icon: <ApiOutlined />, label: '查询分析器' },
@@ -94,6 +97,7 @@ function App() {
             <Route path="/approvals" element={<Approvals />} />
             <Route path="/dependency-graph" element={<DependencyGraph />} />
             <Route path="/schema" element={<SchemaBrowser />} />
+            <Route path="/versions" element={<VersionManagement />} />
             <Route path="/changes" element={<ChangeHistory />} />
             <Route path="/schema-diff" element={<SchemaDiff />} />
             <Route path="/query-analyzer" element={<QueryAnalyzer />} />
