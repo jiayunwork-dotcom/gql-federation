@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
-import { getVersionsTimeline, getVersionDetail, compareVersions } from '../services/version-management-service';
+import { getVersionsTimeline, getVersionDetail, compareVersions, getApprovalForVersion } from '../services/version-management-service';
 
 const queryTimelineSchema = z.object({
   subgraphId: z.string().optional(),
@@ -52,7 +52,9 @@ export default async function versionManagementRoutes(fastify: FastifyInstance) 
         return;
       }
 
-      return { success: true, data: version };
+      const approval = await getApprovalForVersion(versionId, tenantId);
+
+      return { success: true, data: { ...version, approval } };
     } catch (err: any) {
       reply.status(400).send({ success: false, error: err.message });
     }

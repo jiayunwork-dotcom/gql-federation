@@ -11,6 +11,7 @@ import {
   rollbackCanary,
   fullReleaseCanary,
   getCanaryMetrics,
+  getCanaryMetricsTimeSeries,
   checkCanaryAutoFullRelease,
 } from '../services/canary-service';
 
@@ -188,6 +189,24 @@ export default async function canaryRoutes(fastify: FastifyInstance) {
       const tenantId = (request as any).tenantId;
 
       const metrics = await getCanaryMetrics(canaryId, tenantId);
+
+      return { success: true, data: metrics };
+    } catch (err: any) {
+      reply.status(400).send({ success: false, error: err.message });
+    }
+  });
+
+  fastify.get('/:canaryId/metrics/time-series', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { canaryId } = request.params as { canaryId: string };
+      const tenantId = (request as any).tenantId;
+      const { minutes } = request.query as { minutes?: string };
+
+      const metrics = await getCanaryMetricsTimeSeries(
+        canaryId,
+        tenantId,
+        minutes ? parseInt(minutes, 10) : 30
+      );
 
       return { success: true, data: metrics };
     } catch (err: any) {

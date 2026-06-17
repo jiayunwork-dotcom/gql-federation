@@ -39,6 +39,12 @@ import {
   WarningOutlined,
   DashboardOutlined,
   InfoCircleOutlined,
+  BellOutlined,
+  CaretDownOutlined,
+  CaretRightOutlined,
+  LoadingOutlined,
+  CloseOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
@@ -54,6 +60,7 @@ import {
   getVersionDetail,
   getActiveCanary,
   getCanaryMetrics,
+  getCanaryMetricsTimeSeries,
   compareVersions,
   startCanaryRelease,
   adjustCanaryPercent,
@@ -62,7 +69,19 @@ import {
   checkCanaryAutoFullRelease,
   getReleaseAuditLogs,
   getCanaryById,
+  getCanaryReleases,
+  exportReleaseAuditCsv,
 } from '../api/version-management';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from 'recharts';
 import useWebSocket from '../hooks/useWebSocket';
 import { NotificationMessage } from '../types/collaboration';
 
@@ -82,12 +101,13 @@ const VersionManagement: React.FC = () => {
 
   const [activeCanary, setActiveCanary] = useState<CanaryRelease | null>(null);
   const [canaryMetrics, setCanaryMetrics] = useState<CanaryMetricsSummary | null>(null);
+  const [canaryMetricsTimeSeries, setCanaryMetricsTimeSeries] = useState<any>(null);
   const [canaryLoading, setCanaryLoading] = useState(false);
   const [showErrorAlert, setShowErrorAlert] = useState(false);
   const [canFullRelease, setCanFullRelease] = useState(false);
 
   const [compareModalVisible, setCompareModalVisible] = useState(false);
-  const [compareVersions, setCompareVersions] = useState<string[]>([]);
+  const [compareVersionIds, setCompareVersionIds] = useState<string[]>([]);
   const [compareResult, setCompareResult] = useState<VersionCompareResult | null>(null);
   const [compareLoading, setCompareLoading] = useState(false);
 
@@ -108,6 +128,10 @@ const VersionManagement: React.FC = () => {
   const [auditCanaryDetail, setAuditCanaryDetail] = useState<CanaryRelease | null>(null);
   const [auditCanaryLoading, setAuditCanaryLoading] = useState(false);
 
+  const [canaryNotifications, setCanaryNotifications] = useState<any[]>([]);
+  const [expandedSubgraphs, setExpandedSubgraphs] = useState<Set<string>>(new Set());
+  const [allCanaryReleases, setAllCanaryReleases] = useState<CanaryRelease[]>([]);
+
   const metricsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { send, isConnected } = useWebSocket({
@@ -122,6 +146,27 @@ const VersionManagement: React.FC = () => {
         if (message.payload.status === 'rolled_back') {
           setShowErrorAlert(true);
         }
+      }
+      if (message.payload.actionType) {
+        const newNotification = {
+          id: Date.now() + Math.random(),
+          actionType: message.payload.actionType,
+          subgraphName: message.payload.subgraphName,
+          operator: message.payload.operator,
+          currentPercent: message.payload.currentPercent,
+          timestamp: message.timestamp,
+          status: message.payload.status,
+        };
+        setCanaryNotifications((prev) => {
+          const updated = [newNotification, ...prev];
+          return updated.slice(0, 5);
+        });
+      }
+    }
+    if (message.type === 'approval_status_changed' && message.payload) {
+      const subgraphId = message.payload.subgraphId;
+      if (subgraphId === selectedSubgraphId && selectedVersion) {
+        loadVersionDetail(selectedVersion.id);
       }
     }
   }
@@ -139,6 +184,13 @@ const VersionManagement: React.FC = () => {
       }
       const data = await getVersionsTimeline(params);
       setTimelineData(data);
+
+      const initialExpanded = new Set<string>();
+      data.slice(0, 3).forEach((sg) => initialExpanded.add(sg.subgraphId));
+      setExpandedSubgraphs(initialExpanded);
+
+      const canaryResult = await getCanaryReleases({ limit: 100 });
+      setAllCanaryReleases(canaryResult.rows);
     } catch (err: any) {
       message.error('加载版本时间线失败: ' + err.message);
     } finally {
@@ -164,11 +216,13 @@ const VersionManagement: React.FC = () => {
       setActiveCanary(canary);
       if (canary && canary.status === 'canary') {
         loadCanaryMetrics(canary.id);
+        loadCanaryMetricsTimeSeries(canary.id);
         startMetricsPolling(canary.id);
         checkAutoFullRelease(canary.id);
       } else {
         stopMetricsPolling();
         setCanaryMetrics(null);
+        setCanaryMetricsTimeSeries(null);
         setShowErrorAlert(false);
       }
     } catch (err: any) {
@@ -190,6 +244,15 @@ const VersionManagement: React.FC = () => {
     }
   };
 
+  const loadCanaryMetricsTimeSeries = async (canaryId: string) => {
+    try {
+      const data = await getCanaryMetricsTimeSeries(canaryId, 30);
+      setCanaryMetricsTimeSeries(data);
+    } catch (err: any) {
+      console.error('加载灰度指标时间序列失败:', err);
+    }
+  };
+
   const checkAutoFullRelease = async (canaryId: string) => {
     try {
       const canRelease = await checkCanaryAutoFullRelease(canaryId);
@@ -203,6 +266,7 @@ const VersionManagement: React.FC = () => {
     stopMetricsPolling();
     metricsIntervalRef.current = setInterval(() => {
       loadCanaryMetrics(canaryId);
+      loadCanaryMetricsTimeSeries(canaryId);
       checkAutoFullRelease(canaryId);
     }, 10000);
   };
@@ -228,7 +292,7 @@ const VersionManagement: React.FC = () => {
   };
 
   const handleCompareClick = () => {
-    if (compareVersions.length !== 2) {
+    if (compareVersionIds.length !== 2) {
       message.warning('请选择两个版本进行对比');
       return;
     }
@@ -238,7 +302,7 @@ const VersionManagement: React.FC = () => {
   const doCompare = async () => {
     setCompareLoading(true);
     try {
-      const result = await compareVersions(compareVersions[0], compareVersions[1]);
+      const result = await compareVersions(compareVersionIds[0], compareVersionIds[1]);
       setCompareResult(result);
       setCompareModalVisible(true);
     } catch (err: any) {
@@ -250,13 +314,13 @@ const VersionManagement: React.FC = () => {
 
   const handleVersionCheckboxChange = (versionId: string, checked: boolean) => {
     if (checked) {
-      if (compareVersions.length < 2) {
-        setCompareVersions([...compareVersions, versionId]);
+      if (compareVersionIds.length < 2) {
+        setCompareVersionIds([...compareVersionIds, versionId]);
       } else {
         message.warning('最多只能选择两个版本进行对比');
       }
     } else {
-      setCompareVersions(compareVersions.filter((v) => v !== versionId));
+      setCompareVersionIds(compareVersionIds.filter((v) => v !== versionId));
     }
   };
 
@@ -402,6 +466,23 @@ const VersionManagement: React.FC = () => {
     }
   }, [auditPage, auditPageSize, auditActionType, auditDateRange, auditSubgraphName]);
 
+  const handleExportCsv = async () => {
+    try {
+      const params: any = {};
+      if (auditActionType) {
+        params.actionType = auditActionType;
+      }
+      if (auditDateRange && auditDateRange[0] && auditDateRange[1]) {
+        params.startTime = auditDateRange[0].toISOString();
+        params.endTime = auditDateRange[1].toISOString();
+      }
+      await exportReleaseAuditCsv(params);
+      message.success('导出成功');
+    } catch (err: any) {
+      message.error('导出失败: ' + err.message);
+    }
+  };
+
   const handleAuditSearch = () => {
     setAuditPage(1);
     loadAuditLogs();
@@ -463,6 +544,176 @@ const VersionManagement: React.FC = () => {
     }
   };
 
+  const getCanaryActionText = (actionType: string) => {
+    const typeMap: Record<string, string> = {
+      start_canary: '发起灰度',
+      adjust_percent: '调整比例',
+      full_release: '全量发布',
+      rollback: '回滚',
+    };
+    return typeMap[actionType] || actionType;
+  };
+
+  const getCanaryActionColor = (actionType: string) => {
+    const colorMap: Record<string, string> = {
+      start_canary: 'blue',
+      adjust_percent: 'cyan',
+      full_release: 'green',
+      rollback: 'red',
+    };
+    return colorMap[actionType] || 'default';
+  };
+
+  const getVersionStatus = (version: SchemaVersion): 'active' | 'canary' | 'rolled_back' | 'historical' => {
+    if (version.is_active) return 'active';
+
+    const canaryForVersion = allCanaryReleases.find(
+      (c) => c.new_version_id === version.id
+    );
+
+    if (canaryForVersion) {
+      if (canaryForVersion.status === 'canary' || canaryForVersion.status === 'pending') {
+        return 'canary';
+      }
+      if (canaryForVersion.status === 'rolled_back') {
+        return 'rolled_back';
+      }
+    }
+
+    return 'historical';
+  };
+
+  const getVersionStatusText = (status: string) => {
+    const statusMap: Record<string, string> = {
+      active: '当前活跃',
+      canary: '灰度中',
+      rolled_back: '已回滚',
+      historical: '历史版本',
+    };
+    return statusMap[status] || status;
+  };
+
+  const handleToggleSubgraph = (subgraphId: string) => {
+    setExpandedSubgraphs((prev) => {
+      const next = new Set(prev);
+      if (next.has(subgraphId)) {
+        next.delete(subgraphId);
+      } else {
+        next.add(subgraphId);
+      }
+      return next;
+    });
+  };
+
+  const handleExpandAll = () => {
+    const all = new Set(timelineData.map((sg) => sg.subgraphId));
+    setExpandedSubgraphs(all);
+  };
+
+  const handleCollapseAll = () => {
+    setExpandedSubgraphs(new Set());
+  };
+
+  const prepareChartData = (timeSeries: any, metricKey: string) => {
+    if (!timeSeries) return [];
+
+    const oldData = timeSeries.oldVersion || [];
+    const newData = timeSeries.newVersion || [];
+
+    const timeMap = new Map<string, { oldVersion: number; newVersion: number }>();
+
+    oldData.forEach((item: any) => {
+      const time = dayjs(item.timestamp).format('HH:mm');
+      timeMap.set(time, { oldVersion: item[metricKey] ?? 0, newVersion: 0 });
+    });
+
+    newData.forEach((item: any) => {
+      const time = dayjs(item.timestamp).format('HH:mm');
+      const existing = timeMap.get(time) || { oldVersion: 0, newVersion: 0 };
+      timeMap.set(time, { ...existing, newVersion: item[metricKey] ?? 0 });
+    });
+
+    const sortedTimes = Array.from(timeMap.keys()).sort();
+    return sortedTimes.map((time) => ({
+      time,
+      oldVersion: timeMap.get(time)!.oldVersion,
+      newVersion: timeMap.get(time)!.newVersion,
+    }));
+  };
+
+  const renderCanaryNotifications = () => {
+    if (canaryNotifications.length === 0) return null;
+
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          top: 80,
+          right: 24,
+          zIndex: 1000,
+          width: 320,
+        }}
+      >
+        <div
+          style={{
+            background: '#fff',
+            borderRadius: 8,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              padding: '10px 16px',
+              background: '#f0f5ff',
+              borderBottom: '1px solid #e8e8e8',
+              fontWeight: 600,
+              fontSize: 14,
+            }}
+          >
+            <Space>
+              <BellOutlined />
+              灰度操作通知
+            </Space>
+          </div>
+          <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+            {canaryNotifications.map((notif) => (
+              <div
+                key={notif.id}
+                style={{
+                  padding: '12px 16px',
+                  borderBottom: '1px solid #f0f0f0',
+                }}
+              >
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Tag color={getCanaryActionColor(notif.actionType)} icon={getActionIcon(notif.actionType)}>
+                      {getCanaryActionText(notif.actionType)}
+                    </Tag>
+                    <span style={{ fontSize: 11, color: '#999' }}>
+                      {dayjs(notif.timestamp).format('HH:mm:ss')}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 13 }}>
+                    <strong>{notif.subgraphName}</strong>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#666' }}>
+                    操作人: {notif.operator}
+                  </div>
+                  {notif.currentPercent !== undefined && (
+                    <div style={{ fontSize: 12, color: '#1890ff' }}>
+                      当前灰度: {notif.currentPercent}%
+                    </div>
+                  )}
+                </Space>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderTimeline = () => {
     if (loading) {
       return (
@@ -476,92 +727,198 @@ const VersionManagement: React.FC = () => {
       return <Empty description="暂无版本数据" />;
     }
 
-    return (
-      <div
-        ref={timelineRef}
-        style={{
-          overflowX: 'auto',
-          overflowY: 'auto',
-          maxHeight: 'calc(100vh - 300px)',
-        }}
-      >
-        <div style={{ minWidth: `${800 * zoom}px`, padding: '20px 0' }}>
-          {timelineData.map((subgraph) => (
-            <div key={subgraph.subgraphId} style={{ marginBottom: 32 }}>
-              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12, paddingLeft: 12 }}>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{subgraph.subgraphName}</h3>
-                <Tag style={{ marginLeft: 8 }}>{subgraph.versions.length} 个版本</Tag>
-              </div>
-              <div
-                style={{
-                  position: 'relative',
-                  height: 60,
-                  borderBottom: '2px solid #e8e8e8',
-                  marginLeft: 60,
-                  marginRight: 60,
-                }}
-              >
-                {subgraph.versions.map((version, index) => {
-                  const position = subgraph.versions.length > 1 
-                    ? (index / (subgraph.versions.length - 1)) * 100 
-                    : 50;
-                  const isSelected = selectedVersion?.id === version.id;
-                  const isRolledBack = false;
+    const allExpanded = timelineData.every((sg) => expandedSubgraphs.has(sg.subgraphId));
+    const hasMoreThan3 = timelineData.length > 3;
 
-                  return (
+    return (
+      <div>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
+          <Space>
+            {hasMoreThan3 && (
+              <>
+                <Button size="small" onClick={handleExpandAll} disabled={allExpanded}>
+                  展开全部
+                </Button>
+                <Button size="small" onClick={handleCollapseAll} disabled={!allExpanded}>
+                  收起全部
+                </Button>
+              </>
+            )}
+          </Space>
+        </div>
+        <div
+          ref={timelineRef}
+          style={{
+            overflowX: 'auto',
+            overflowY: 'auto',
+            maxHeight: 'calc(100vh - 360px)',
+          }}
+        >
+          <div style={{ minWidth: `${800 * zoom}px`, padding: '20px 0' }}>
+            {timelineData.map((subgraph) => {
+              const isExpanded = expandedSubgraphs.has(subgraph.subgraphId);
+
+              return (
+                <div key={subgraph.subgraphId} style={{ marginBottom: 24 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      marginBottom: 8,
+                      paddingLeft: 12,
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => handleToggleSubgraph(subgraph.subgraphId)}
+                  >
+                    {isExpanded ? <CaretDownOutlined /> : <CaretRightOutlined />}
+                    <h3 style={{ margin: 0, marginLeft: 8, fontSize: 16, fontWeight: 600 }}>
+                      {subgraph.subgraphName}
+                    </h3>
+                    <Tag style={{ marginLeft: 8 }}>{subgraph.versions.length} 个版本</Tag>
+                  </div>
+                  {isExpanded && (
                     <div
-                      key={version.id}
                       style={{
-                        position: 'absolute',
-                        left: `${position}%`,
-                        transform: 'translateX(-50%)',
-                        top: -8,
-                        cursor: 'pointer',
+                        position: 'relative',
+                        height: 60,
+                        borderBottom: '2px solid #e8e8e8',
+                        marginLeft: 60,
+                        marginRight: 60,
                       }}
-                      onClick={() => handleVersionClick(version)}
                     >
-                      <Tooltip
-                        title={
-                          <div>
-                            <div><strong>{version.version_string}</strong></div>
-                            <div>发布时间: {dayjs(version.published_at).format('YYYY-MM-DD HH:mm:ss')}</div>
-                            <div>发布人: {version.published_by || '未知'}</div>
-                            <div>兼容性: {version.compatibility}</div>
-                          </div>
-                        }
-                      >
-                        <div
-                          style={{
+                      {subgraph.versions.map((version, index) => {
+                        const position =
+                          subgraph.versions.length > 1
+                            ? (index / (subgraph.versions.length - 1)) * 100
+                            : 50;
+                        const isSelected = selectedVersion?.id === version.id;
+                        const status = getVersionStatus(version);
+
+                        const renderStatusIcon = () => {
+                          const baseStyle: React.CSSProperties = {
                             width: 16,
                             height: 16,
-                            borderRadius: '50%',
-                            backgroundColor: isRolledBack ? '#ff4d4f' : version.is_active ? '#52c41a' : '#1890ff',
-                            border: isSelected ? '3px solid #1890ff' : '2px solid #fff',
-                            boxShadow: isSelected ? '0 0 0 2px #91d5ff' : 'none',
-                            transition: 'all 0.2s',
-                          }}
-                        />
-                      </Tooltip>
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: 20,
-                          left: '50%',
-                          transform: 'translateX(-50%)',
-                          whiteSpace: 'nowrap',
-                          fontSize: 11,
-                          color: isSelected ? '#1890ff' : '#666',
-                          fontWeight: isSelected ? 600 : 400,
-                        }}
-                      >
-                        {version.version_string}
-                      </div>
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          };
+
+                          switch (status) {
+                            case 'active':
+                              return (
+                                <div
+                                  style={{
+                                    ...baseStyle,
+                                    borderRadius: '50%',
+                                    backgroundColor: '#52c41a',
+                                  }}
+                                />
+                              );
+                            case 'canary':
+                              return (
+                                <div
+                                  style={{
+                                    ...baseStyle,
+                                    color: '#1890ff',
+                                  }}
+                                >
+                                  <LoadingOutlined spin style={{ fontSize: 18 }} />
+                                </div>
+                              );
+                            case 'rolled_back':
+                              return (
+                                <div
+                                  style={{
+                                    ...baseStyle,
+                                    color: '#ff4d4f',
+                                  }}
+                                >
+                                  <CloseOutlined style={{ fontSize: 18 }} />
+                                </div>
+                              );
+                            default:
+                              return (
+                                <div
+                                  style={{
+                                    ...baseStyle,
+                                    borderRadius: '50%',
+                                    backgroundColor: '#bfbfbf',
+                                  }}
+                                />
+                              );
+                          }
+                        };
+
+                        return (
+                          <div
+                            key={version.id}
+                            style={{
+                              position: 'absolute',
+                              left: `${position}%`,
+                              transform: 'translateX(-50%)',
+                              top: -8,
+                              cursor: 'pointer',
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleVersionClick(version);
+                            }}
+                          >
+                            <Tooltip
+                              title={
+                                <div>
+                                  <div>
+                                    <strong>{version.version_string}</strong>
+                                  </div>
+                                  <div>
+                                    发布时间:{' '}
+                                    {dayjs(version.published_at).format(
+                                      'YYYY-MM-DD HH:mm:ss'
+                                    )}
+                                  </div>
+                                  <div>当前状态: {getVersionStatusText(status)}</div>
+                                  <div>发布人: {version.published_by || '未知'}</div>
+                                  <div>兼容性: {version.compatibility}</div>
+                                </div>
+                              }
+                            >
+                              <div
+                                style={{
+                                  position: 'relative',
+                                  border: isSelected
+                                    ? '3px solid #1890ff'
+                                    : '2px solid #fff',
+                                  boxShadow: isSelected ? '0 0 0 2px #91d5ff' : 'none',
+                                  borderRadius: '50%',
+                                  transition: 'all 0.2s',
+                                }}
+                              >
+                                {renderStatusIcon()}
+                              </div>
+                            </Tooltip>
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 20,
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                whiteSpace: 'nowrap',
+                                fontSize: 11,
+                                color: isSelected ? '#1890ff' : '#666',
+                                fontWeight: isSelected ? 600 : 400,
+                              }}
+                            >
+                              {version.version_string}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     );
@@ -577,6 +934,9 @@ const VersionManagement: React.FC = () => {
       );
     }
 
+    const isApproved = selectedVersion.approval?.status === 'approved';
+    const canStartCanary = isApproved && activeCanary?.status !== 'canary' && activeCanary?.status !== 'pending';
+
     return (
       <div>
         <Card
@@ -587,23 +947,29 @@ const VersionManagement: React.FC = () => {
                 {selectedVersion.compatibility}
               </Tag>
               {selectedVersion.is_active && <Tag color="green">当前活跃</Tag>}
+              {isApproved && <Tag color="green" icon={<CheckCircleOutlined />}>可发起灰度发布</Tag>}
             </Space>
           }
           extra={
             <Space>
               <Checkbox
-                checked={compareVersions.includes(selectedVersion.id)}
+                checked={compareVersionIds.includes(selectedVersion.id)}
                 onChange={(e) =>
                   handleVersionCheckboxChange(selectedVersion.id, e.target.checked)
                 }
               >
                 对比
               </Checkbox>
-              {activeCanary?.status !== 'canary' && activeCanary?.status !== 'pending' && (
-                <Button type="primary" icon={<RocketOutlined />} onClick={() => setStartCanaryModalVisible(true)}>
+              <Tooltip title={isApproved ? '' : '该版本未通过审批,无法发起灰度发布'}>
+                <Button
+                  type="primary"
+                  icon={<RocketOutlined />}
+                  onClick={() => setStartCanaryModalVisible(true)}
+                  disabled={!canStartCanary}
+                >
                   灰度发布
                 </Button>
-              )}
+              </Tooltip>
             </Space>
           }
         >
@@ -784,27 +1150,117 @@ const VersionManagement: React.FC = () => {
             </Col>
           </Row>
 
-          {canaryMetrics && (
-            <Row gutter={16}>
-              <Col span={12}>
-                <Card size="small" title="旧版本指标">
-                  <div>请求量: {canaryMetrics.oldVersion.requestCount}</div>
-                  <div>错误量: {canaryMetrics.oldVersion.errorCount}</div>
-                  <div>错误率: {canaryMetrics.oldVersion.errorRate.toFixed(2)}%</div>
-                  <div>平均延迟: {canaryMetrics.oldVersion.avgLatencyMs.toFixed(2)}ms</div>
-                </Card>
-              </Col>
-              <Col span={12}>
-                <Card size="small" title="新版本指标">
-                  <div>请求量: {canaryMetrics.newVersion.requestCount}</div>
-                  <div>错误量: {canaryMetrics.newVersion.errorCount}</div>
-                  <div style={{ color: canaryMetrics.newVersion.errorRate > 5 ? '#ff4d4f' : undefined }}>
-                    错误率: {canaryMetrics.newVersion.errorRate.toFixed(2)}%
-                  </div>
-                  <div>平均延迟: {canaryMetrics.newVersion.avgLatencyMs.toFixed(2)}ms</div>
-                </Card>
-              </Col>
-            </Row>
+          {canaryMetricsTimeSeries && (
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Card size="small" title="请求量趋势 (最近30分钟)">
+                <div style={{ height: 120 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={prepareChartData(canaryMetricsTimeSeries, 'requestCount')}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis 
+                        dataKey="time" 
+                        tick={{ fontSize: 10 }} 
+                        tickFormatter={(v) => v}
+                      />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <RechartsTooltip 
+                        formatter={(value: any, name: string) => [
+                          value,
+                          name === 'newVersion' ? '新版本' : '旧版本'
+                        ]}
+                        labelFormatter={(label) => `时间: ${label}`}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="oldVersion"
+                        stroke="#bfbfbf"
+                        strokeWidth={2}
+                        dot={false}
+                        name="oldVersion"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="newVersion"
+                        stroke="#1890ff"
+                        strokeWidth={2}
+                        dot={false}
+                        name="newVersion"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 8 }}>
+                  <span style={{ fontSize: 12, color: '#666' }}>
+                    <span style={{ display: 'inline-block', width: 12, height: 2, background: '#bfbfbf', marginRight: 6, verticalAlign: 'middle' }}></span>
+                    旧版本
+                  </span>
+                  <span style={{ fontSize: 12, color: '#666' }}>
+                    <span style={{ display: 'inline-block', width: 12, height: 2, background: '#1890ff', marginRight: 6, verticalAlign: 'middle' }}></span>
+                    新版本
+                  </span>
+                </div>
+              </Card>
+
+              <Card size="small" title="错误率趋势 (最近30分钟)">
+                <div style={{ height: 120, position: 'relative' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={prepareChartData(canaryMetricsTimeSeries, 'errorRate')}>
+                      <defs>
+                        <linearGradient id="errorGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#ff4d4f" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#ff4d4f" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis 
+                        dataKey="time" 
+                        tick={{ fontSize: 10 }} 
+                        tickFormatter={(v) => v}
+                      />
+                      <YAxis tick={{ fontSize: 10 }} domain={[0, 'auto']} />
+                      <ReferenceLine y={5} stroke="#ff4d4f" strokeDasharray="5 5" label={{ value: '5%阈值', fill: '#ff4d4f', fontSize: 10, position: 'insideTopRight' }} />
+                      <RechartsTooltip 
+                        formatter={(value: any, name: string) => [
+                          `${value.toFixed(2)}%`,
+                          name === 'newVersion' ? '新版本' : '旧版本'
+                        ]}
+                        labelFormatter={(label) => `时间: ${label}`}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="oldVersion"
+                        stroke="#bfbfbf"
+                        strokeWidth={2}
+                        dot={false}
+                        name="oldVersion"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="newVersion"
+                        stroke="#1890ff"
+                        strokeWidth={2}
+                        dot={false}
+                        name="newVersion"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 8 }}>
+                  <span style={{ fontSize: 12, color: '#666' }}>
+                    <span style={{ display: 'inline-block', width: 12, height: 2, background: '#bfbfbf', marginRight: 6, verticalAlign: 'middle' }}></span>
+                    旧版本
+                  </span>
+                  <span style={{ fontSize: 12, color: '#666' }}>
+                    <span style={{ display: 'inline-block', width: 12, height: 2, background: '#1890ff', marginRight: 6, verticalAlign: 'middle' }}></span>
+                    新版本
+                  </span>
+                  <span style={{ fontSize: 12, color: '#ff4d4f' }}>
+                    <span style={{ display: 'inline-block', width: 12, height: 2, background: '#ff4d4f', marginRight: 6, verticalAlign: 'middle' }}></span>
+                    阈值线
+                  </span>
+                </div>
+              </Card>
+            </Space>
           )}
 
           {isCanaryActive && (
@@ -1236,11 +1692,11 @@ const VersionManagement: React.FC = () => {
                 </Space>
                 <Button
                   icon={<DiffOutlined />}
-                  type={compareVersions.length === 2 ? 'primary' : 'default'}
+                  type={compareVersionIds.length === 2 ? 'primary' : 'default'}
                   onClick={handleCompareClick}
-                  disabled={compareVersions.length !== 2}
+                  disabled={compareVersionIds.length !== 2}
                 >
-                  版本对比 ({compareVersions.length}/2)
+                  版本对比 ({compareVersionIds.length}/2)
                 </Button>
               </div>
             </Space>
@@ -1260,6 +1716,15 @@ const VersionManagement: React.FC = () => {
           <Card 
             title="发布记录" 
             style={{ display: activeTab === 'history' ? 'block' : 'none' }}
+            extra={
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                onClick={handleExportCsv}
+              >
+                导出CSV
+              </Button>
+            }
           >
             {renderAuditTable()}
           </Card>
@@ -1281,6 +1746,7 @@ const VersionManagement: React.FC = () => {
       {renderCompareModal()}
       {renderStartCanaryModal()}
       {renderAuditDetailModal()}
+      {renderCanaryNotifications()}
     </Layout>
   );
 };

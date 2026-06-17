@@ -1,8 +1,9 @@
 import { query } from '../db';
 import { getRedisClient, cacheGet, cacheSet, cacheDel } from '../cache';
-import { CanaryRelease, CanaryMetricsSummary, PercentHistoryItem } from '../types';
+import { CanaryRelease, CanaryMetricsSummary, PercentHistoryItem, CanaryMetric } from '../types';
 import { getSubgraphById, getSchemaVersionById, getActiveSchemaVersion } from './subgraph-service';
 import { notificationService } from './notification-service';
+import { getApprovalForVersion } from './version-management-service';
 
 const CANARY_REDIS_PREFIX = 'canary:config:';
 const VALID_PERCENTS = [10, 25, 50, 75, 100];
@@ -136,6 +137,11 @@ export async function startCanaryRelease(
     throw new Error('New version not found');
   }
 
+  const approval = await getApprovalForVersion(newVersionId, tenantId);
+  if (!approval || approval.status !== 'approved') {
+    throw new Error('该版本未通过审批，无法发起灰度发布');
+  }
+
   const oldVersion = await getActiveSchemaVersion(subgraphId);
   if (!oldVersion) {
     throw new Error('No active version found for subgraph');
@@ -216,6 +222,8 @@ export async function startCanaryRelease(
       currentPercent: initialPercent,
       oldVersion: oldVersion.version_string,
       newVersion: newVersion.version_string,
+      actionType: 'start_canary',
+      operator: startedBy,
     },
     subgraph.name,
     subgraphId
@@ -302,6 +310,8 @@ export async function adjustCanaryPercent(
       status: newStatus,
       currentPercent: newPercent,
       oldPercent,
+      actionType: 'adjust_percent',
+      operator,
     },
     canary.subgraph_name,
     canary.subgraph_id
@@ -372,6 +382,8 @@ export async function rollbackCanary(
       currentPercent: 0,
       rollbackReason: reason,
       rolledBackBy: operator,
+      actionType: 'rollback',
+      operator,
     },
     canary.subgraph_name,
     canary.subgraph_id
@@ -451,6 +463,8 @@ export async function fullReleaseCanary(
       subgraphName: canary.subgraph_name,
       status: 'full_rollout',
       currentPercent: 100,
+      actionType: 'full_release',
+      operator,
     },
     canary.subgraph_name,
     canary.subgraph_id
@@ -512,6 +526,67 @@ export async function getCanaryMetrics(
       errorRate: newMetrics.request_count ? (newMetrics.error_count / newMetrics.request_count) * 100 : 0,
       avgLatencyMs: parseFloat(newMetrics.avg_latency_ms as any || '0'),
     },
+  };
+}
+
+export interface CanaryMetricsDataPoint {
+  timestamp: string;
+  requestCount: number;
+  errorCount: number;
+  errorRate: number;
+  avgLatencyMs: number;
+}
+
+export interface CanaryMetricsTimeSeries {
+  oldVersion: CanaryMetricsDataPoint[];
+  newVersion: CanaryMetricsDataPoint[];
+}
+
+export async function getCanaryMetricsTimeSeries(
+  canaryId: string,
+  tenantId: string,
+  minutes: number = 30
+): Promise<CanaryMetricsTimeSeries> {
+  const canary = await getCanaryById(canaryId, tenantId);
+  if (!canary) {
+    throw new Error('Canary release not found');
+  }
+
+  const startTime = new Date(Date.now() - minutes * 60 * 1000);
+
+  const oldMetricsResult = await query<CanaryMetric>(
+    `SELECT * FROM canary_metrics
+     WHERE canary_release_id = $1 
+       AND version_type = 'old' 
+       AND tenant_id = $2
+       AND window_start >= $3
+     ORDER BY window_start ASC`,
+    [canaryId, tenantId, startTime]
+  );
+
+  const newMetricsResult = await query<CanaryMetric>(
+    `SELECT * FROM canary_metrics
+     WHERE canary_release_id = $1 
+       AND version_type = 'new' 
+       AND tenant_id = $2
+       AND window_start >= $3
+     ORDER BY window_start ASC`,
+    [canaryId, tenantId, startTime]
+  );
+
+  const transformToDataPoints = (metrics: CanaryMetric[]): CanaryMetricsDataPoint[] => {
+    return metrics.map((m) => ({
+      timestamp: m.window_start.toString(),
+      requestCount: parseInt(m.request_count as any || '0', 10),
+      errorCount: parseInt(m.error_count as any || '0', 10),
+      errorRate: m.request_count ? (m.error_count / m.request_count) * 100 : 0,
+      avgLatencyMs: parseFloat(m.avg_latency_ms as any || '0'),
+    }));
+  };
+
+  return {
+    oldVersion: transformToDataPoints(oldMetricsResult.rows),
+    newVersion: transformToDataPoints(newMetricsResult.rows),
   };
 }
 
@@ -604,6 +679,7 @@ export default {
   rollbackCanary,
   fullReleaseCanary,
   getCanaryMetrics,
+  getCanaryMetricsTimeSeries,
   checkCanaryAutoRollback,
   checkCanaryAutoFullRelease,
   getCanaryConfigFromRedis,

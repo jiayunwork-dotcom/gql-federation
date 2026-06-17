@@ -1,5 +1,5 @@
 import { query } from '../db';
-import { SchemaVersion, ChangeSummary } from '../types';
+import { SchemaVersion, ChangeSummary, SchemaChangeApproval } from '../types';
 import { getSubgraphById, getSchemaVersions, getSchemaVersionById, getLatestSchemaVersion } from './subgraph-service';
 import { detectChanges } from './schema-composition';
 
@@ -165,10 +165,24 @@ export async function compareVersions(
   };
 }
 
+export async function getApprovalForVersion(
+  versionId: string,
+  tenantId: string
+): Promise<SchemaChangeApproval | null> {
+  const result = await query<SchemaChangeApproval>(
+    `SELECT * FROM schema_change_approvals 
+     WHERE schema_version_id = $1 AND tenant_id = $2
+     ORDER BY created_at DESC LIMIT 1`,
+    [versionId, tenantId]
+  );
+  return result.rows[0] || null;
+}
+
 export default {
   getVersionsTimeline,
   getVersionDetail,
   generateNextVersion,
   updateSchemaVersionWithSemantic,
   compareVersions,
+  getApprovalForVersion,
 };

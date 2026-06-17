@@ -15,6 +15,25 @@ export interface SchemaVersion {
   published_by?: string;
   published_at: string;
   created_at: string;
+  approval?: SchemaChangeApproval;
+}
+
+export type ApprovalStatus = 'pending_approval' | 'approved' | 'rejected' | 'validation_failed' | 'resubmitted';
+
+export interface SchemaChangeApproval {
+  id: string;
+  tenant_id: string;
+  subgraph_id: string;
+  subgraph_name: string;
+  schema_version_id?: string;
+  submitted_by: string;
+  changelog?: string;
+  status: ApprovalStatus;
+  reviewed_by?: string;
+  review_comment?: string;
+  reviewed_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ChangeSummary {
@@ -81,6 +100,19 @@ export interface CanaryMetricsSummary {
     errorRate: number;
     avgLatencyMs: number;
   };
+}
+
+export interface CanaryMetricsDataPoint {
+  timestamp: string;
+  requestCount: number;
+  errorCount: number;
+  errorRate: number;
+  avgLatencyMs: number;
+}
+
+export interface CanaryMetricsTimeSeries {
+  oldVersion: CanaryMetricsDataPoint[];
+  newVersion: CanaryMetricsDataPoint[];
 }
 
 export type ReleaseActionType = 

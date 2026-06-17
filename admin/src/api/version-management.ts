@@ -4,6 +4,7 @@ import {
   VersionTimelineResult, 
   CanaryRelease, 
   CanaryMetricsSummary, 
+  CanaryMetricsTimeSeries,
   ReleaseAuditLog,
   VersionCompareResult 
 } from '../types/version-management';
@@ -91,6 +92,11 @@ export async function getCanaryMetrics(canaryId: string): Promise<CanaryMetricsS
   return response.data.data;
 }
 
+export async function getCanaryMetricsTimeSeries(canaryId: string, minutes: number = 30): Promise<CanaryMetricsTimeSeries> {
+  const response = await api.get(`/canary/${canaryId}/metrics/time-series`, { params: { minutes } });
+  return response.data.data;
+}
+
 export async function checkCanaryAutoFullRelease(canaryId: string): Promise<boolean> {
   const response = await api.get(`/canary/${canaryId}/auto-full-release-check`);
   return response.data.data.canFullRelease;
@@ -116,6 +122,32 @@ export async function getReleaseAuditLogById(id: string): Promise<ReleaseAuditLo
   return response.data.data;
 }
 
+export async function exportReleaseAuditCsv(params: Omit<GetAuditLogsParams, 'limit' | 'offset'> = {}): Promise<void> {
+  const response = await api.get('/release-audit/export/csv', {
+    params,
+    responseType: 'blob',
+  });
+  
+  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement('a');
+  link.href = url;
+  
+  const contentDisposition = response.headers['content-disposition'];
+  let filename = 'release-audit.csv';
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename="?([^"]+)"?/);
+    if (match) {
+      filename = match[1];
+    }
+  }
+  
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
 export default {
   getVersionsTimeline,
   getVersionDetail,
@@ -128,7 +160,9 @@ export default {
   rollbackCanary,
   fullReleaseCanary,
   getCanaryMetrics,
+  getCanaryMetricsTimeSeries,
   checkCanaryAutoFullRelease,
   getReleaseAuditLogs,
   getReleaseAuditLogById,
+  exportReleaseAuditCsv,
 };
