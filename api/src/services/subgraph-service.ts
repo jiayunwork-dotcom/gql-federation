@@ -89,9 +89,22 @@ export async function getLatestSchemaVersion(subgraphId: string): Promise<Schema
 }
 
 export async function getActiveSchemaVersion(subgraphId: string): Promise<SchemaVersion | null> {
-  const result = await query<SchemaVersion>(
-    'SELECT * FROM schema_versions WHERE subgraph_id = $1 AND is_active = true LIMIT 1',
+  const subgraphResult = await query<{ current_version_id: string | null }>(
+    'SELECT current_version_id FROM subgraphs WHERE id = $1',
     [subgraphId]
+  );
+  
+  if (!subgraphResult.rows[0]?.current_version_id) {
+    const fallbackResult = await query<SchemaVersion>(
+      'SELECT * FROM schema_versions WHERE subgraph_id = $1 ORDER BY version DESC LIMIT 1',
+      [subgraphId]
+    );
+    return fallbackResult.rows[0] || null;
+  }
+
+  const result = await query<SchemaVersion>(
+    'SELECT * FROM schema_versions WHERE id = $1',
+    [subgraphResult.rows[0].current_version_id]
   );
   return result.rows[0] || null;
 }

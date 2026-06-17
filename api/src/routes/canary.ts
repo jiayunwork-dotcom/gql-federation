@@ -1,5 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { authMiddleware } from '../middleware/auth';
+import { tenantMiddleware } from '../middleware/tenant';
 import {
   getCanaryById,
   getCanaryReleases,
@@ -43,6 +45,9 @@ const querySchema = z.object({
 });
 
 export default async function canaryRoutes(fastify: FastifyInstance) {
+  fastify.addHook('preHandler', authMiddleware);
+  fastify.addHook('preHandler', tenantMiddleware);
+
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const query = querySchema.parse(request.query);

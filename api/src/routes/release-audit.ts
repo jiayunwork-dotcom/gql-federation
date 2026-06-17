@@ -1,5 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { authMiddleware } from '../middleware/auth';
+import { tenantMiddleware } from '../middleware/tenant';
 import { query } from '../db';
 import { ReleaseAuditLog } from '../types';
 
@@ -14,6 +16,8 @@ const querySchema = z.object({
 });
 
 export default async function releaseAuditRoutes(fastify: FastifyInstance) {
+  fastify.addHook('preHandler', authMiddleware);
+  fastify.addHook('preHandler', tenantMiddleware);
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const queryParams = querySchema.parse(request.query);

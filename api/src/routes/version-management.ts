@@ -1,5 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { authMiddleware } from '../middleware/auth';
+import { tenantMiddleware } from '../middleware/tenant';
 import { getVersionsTimeline, getVersionDetail, compareVersions } from '../services/version-management-service';
 
 const queryTimelineSchema = z.object({
@@ -16,6 +18,8 @@ const compareVersionsSchema = z.object({
 });
 
 export default async function versionManagementRoutes(fastify: FastifyInstance) {
+  fastify.addHook('preHandler', authMiddleware);
+  fastify.addHook('preHandler', tenantMiddleware);
   fastify.get('/timeline', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const query = queryTimelineSchema.parse(request.query);
