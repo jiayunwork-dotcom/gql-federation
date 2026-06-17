@@ -14,7 +14,7 @@ import {
   saveDraft,
   deleteDraft,
   getActivityLogs,
-  validateSDL,
+  validateSDLContent,
   logActivity,
   getDraftHistories,
   getDraftHistoryById,
@@ -165,7 +165,7 @@ export default async function collaborationRoutes(fastify: FastifyInstance) {
 
   fastify.post('/validate-sdl', async (request: FastifyRequest) => {
     const body = request.body as any;
-    const result = validateSDL(body.sdl || '');
+    const result = validateSDLContent(body.sdl || '');
     return { validation: result };
   });
 

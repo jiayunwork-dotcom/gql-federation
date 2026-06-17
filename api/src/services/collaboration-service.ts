@@ -2,7 +2,7 @@ import { query } from '../db';
 import { Draft, DraftHistory, ActivityLog, ActionType, SyntaxValidationResult } from '../types';
 import { getSubgraphById } from './subgraph-service';
 import { notificationService } from './notification-service';
-import { parse, validate, specifiedRules, buildSchema } from 'graphql';
+import { parse, buildSchema } from 'graphql';
 
 const MAX_DRAFT_HISTORY = 5;
 
@@ -206,24 +206,16 @@ export async function getActivityLogs(
   };
 }
 
-export function validateSDL(sdl: string): SyntaxValidationResult {
-  try {
-    const doc = parse(sdl);
-    const schema = buildSchema(sdl);
-    const errors = validate(schema, doc, specifiedRules);
-
-    if (errors.length === 0) {
-      return { valid: true };
-    }
-
+export function validateSDLContent(sdl: string): SyntaxValidationResult {
+  if (!sdl || !sdl.trim()) {
     return {
       valid: false,
-      errors: errors.map((err) => ({
-        line: err.locations?.[0]?.line || 1,
-        column: err.locations?.[0]?.column || 1,
-        message: err.message,
-      })),
+      errors: [{ line: 1, column: 1, message: 'SDL内容不能为空' }],
     };
+  }
+
+  try {
+    parse(sdl);
   } catch (err: any) {
     const match = err.message?.match(/line (\d+), column (\d+)/);
     return {
@@ -237,6 +229,23 @@ export function validateSDL(sdl: string): SyntaxValidationResult {
       ],
     };
   }
+
+  try {
+    buildSchema(sdl);
+    return { valid: true };
+  } catch (err: any) {
+    const match = err.message?.match(/line (\d+), column (\d+)/);
+    return {
+      valid: false,
+      errors: [
+        {
+          line: match ? parseInt(match[1], 10) : 1,
+          column: match ? parseInt(match[2], 10) : 1,
+          message: err.message || 'Schema构建失败',
+        },
+      ],
+    };
+  }
 }
 
 export default {
@@ -246,7 +255,7 @@ export default {
   deleteDraft,
   logActivity,
   getActivityLogs,
-  validateSDL,
+  validateSDL: validateSDLContent,
   getDraftHistories,
   getDraftHistoryById,
 };

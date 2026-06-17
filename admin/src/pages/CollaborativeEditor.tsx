@@ -14,6 +14,9 @@ import {
   Badge,
   Tag,
   Tooltip,
+  Popover,
+  Empty,
+  Spin,
 } from 'antd';
 import {
   EditOutlined,
@@ -507,175 +510,233 @@ const CollaborativeEditor: React.FC = () => {
     return lockStatus.waitingQueue.find(w => w.userId === user.id) || null;
   }, [lockStatus, user]);
 
-  const getDraftsMenuItems = (): MenuProps['items'] => {
+  const renderDraftList = () => {
     if (draftsLoading) {
-      return [
-        {
-          key: 'loading',
-          label: <div style={{ padding: '12px 16px', color: '#8c8c8c', textAlign: 'center' }}>加载中...</div>,
-          disabled: true,
-        },
-      ];
+      return (
+        <div style={{ padding: 24, textAlign: 'center' }}>
+          <Spin size="small" />
+          <div style={{ color: '#8c8c8c', marginTop: 8 }}>加载中...</div>
+        </div>
+      );
     }
 
     if (draftsError) {
-      return [
-        {
-          key: 'error',
-          label: (
-            <div style={{ padding: '12px 16px', textAlign: 'center' }}>
-              <div style={{ color: '#ff4d4f', marginBottom: 8 }}>{draftsError}</div>
-              <Button size="small" onClick={loadDrafts}>重试</Button>
-            </div>
-          ),
-          disabled: true,
-        },
-      ];
+      return (
+        <div style={{ padding: 24, textAlign: 'center' }}>
+          <div style={{ color: '#ff4d4f', marginBottom: 12 }}>{draftsError}</div>
+          <Button size="small" type="primary" onClick={loadDrafts}>重试</Button>
+        </div>
+      );
     }
 
     if (drafts.length === 0) {
-      return [
-        {
-          key: 'empty',
-          label: <div style={{ padding: '20px 16px', color: '#8c8c8c', textAlign: 'center' }}>暂无草稿</div>,
-          disabled: true,
-        },
-      ];
+      return (
+        <div style={{ padding: 24 }}>
+          <Empty description="暂无草稿" />
+        </div>
+      );
     }
 
-    const items: MenuProps['items'] = [];
+    return (
+      <div style={{ maxHeight: '60vh', overflow: 'auto', minWidth: 360 }}>
+        <div
+          style={{
+            padding: '8px 12px',
+            borderBottom: '1px solid #e8e8e8',
+            fontWeight: 'bold',
+            fontSize: 13,
+            background: '#fafafa',
+            position: 'sticky',
+            top: 0,
+            zIndex: 1,
+          }}
+        >
+          我的草稿 ({drafts.length})
+        </div>
+        <div>
+          {drafts.map((draft) => {
+            const isExpanded = expandedDraftId === draft.id;
+            const histories = draftHistoriesMap.get(draft.id) || [];
+            const isLoadingHistory = loadingHistoryId === draft.id;
 
-    drafts.forEach((draft) => {
-      const isExpanded = expandedDraftId === draft.id;
-      const histories = draftHistoriesMap.get(draft.id) || [];
-      const isLoadingHistory = loadingHistoryId === draft.id;
-
-      items.push({
-        key: draft.id,
-        label: (
-          <div style={{ minWidth: 320 }}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '4px 0',
-              }}
-            >
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={isExpanded ? <UpOutlined /> : <DownOutlined />}
-                  onClick={() => loadDraftHistories(draft)}
-                  loading={isLoadingHistory}
-                  style={{ padding: 0 }}
-                />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 'bold' }}>{draft.subgraph_name || draft.subgraph_id}</div>
-                  <div style={{ fontSize: '12px', color: '#8c8c8c' }}>
-                    更新于 {dayjs(draft.updated_at).format('YYYY-MM-DD HH:mm')}
-                  </div>
-                </div>
-              </div>
-              <Space>
-                <Button size="small" onClick={() => handleRestoreDraft(draft)}>恢复</Button>
-                <Popconfirm
-                  title="确定删除这个草稿？"
-                  onConfirm={() => handleDeleteDraft(draft.subgraph_id)}
-                >
-                  <Button size="small" danger>删除</Button>
-                </Popconfirm>
-              </Space>
-            </div>
-
-            {isExpanded && histories.length > 0 && (
+            return (
               <div
+                key={draft.id}
                 style={{
-                  marginTop: 8,
-                  marginLeft: 24,
-                  padding: '8px 12px',
-                  background: '#fafafa',
-                  borderRadius: 4,
-                  border: '1px solid #e8e8e8',
+                  padding: 12,
+                  borderBottom: '1px solid #f0f0f0',
                 }}
               >
-                <div style={{ fontSize: '12px', color: '#8c8c8c', marginBottom: 8 }}>
-                  历史版本 (最多保留5个)
-                </div>
-                {histories.map((history, idx) => (
-                  <div
-                    key={history.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '6px 0',
-                      borderBottom: idx < histories.length - 1 ? '1px dashed #e8e8e8' : 'none',
-                    }}
-                  >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <Button
+                      type="text"
+                      size="small"
+                      shape="circle"
+                      icon={isExpanded ? <UpOutlined /> : <DownOutlined />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        loadDraftHistories(draft);
+                      }}
+                      loading={isLoadingHistory}
+                      style={{ flexShrink: 0 }}
+                    />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Tag color="blue" style={{ margin: 0 }}>v{history.version_number}</Tag>
-                        <span style={{ fontSize: '12px', color: '#8c8c8c' }}>
-                          {dayjs(history.created_at).format('YYYY-MM-DD HH:mm:ss')}
-                        </span>
+                      <div style={{ fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {draft.subgraph_name || draft.subgraph_id}
                       </div>
-                      <div
-                        style={{
-                          fontSize: '12px',
-                          color: '#595959',
-                          marginTop: 4,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          fontFamily: 'monospace',
-                        }}
-                      >
-                        {history.sdl.substring(0, 30)}{history.sdl.length > 30 ? '...' : ''}
+                      <div style={{ fontSize: '12px', color: '#8c8c8c', marginTop: 2 }}>
+                        更新于 {dayjs(draft.updated_at).format('YYYY-MM-DD HH:mm')}
                       </div>
                     </div>
-                    <Tooltip title="恢复此版本">
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<RollbackOutlined />}
-                        onClick={() => handleRestoreDraftHistory(history)}
-                        style={{ color: '#1890ff' }}
-                      />
-                    </Tooltip>
                   </div>
-                ))}
+                  <Space style={{ flexShrink: 0 }}>
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<RollbackOutlined />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRestoreDraft(draft);
+                      }}
+                    >
+                      恢复
+                    </Button>
+                    <Popconfirm
+                      title="确定删除这个草稿？"
+                      onConfirm={(e) => {
+                        e?.stopPropagation();
+                        handleDeleteDraft(draft.subgraph_id);
+                      }}
+                      okText="删除"
+                      cancelText="取消"
+                    >
+                      <Button
+                        size="small"
+                        danger
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        删除
+                      </Button>
+                    </Popconfirm>
+                  </Space>
+                </div>
+
+                {isExpanded && !isLoadingHistory && histories.length > 0 && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      marginLeft: 32,
+                      padding: '8px 12px',
+                      background: '#fafcff',
+                      borderRadius: 6,
+                      border: '1px solid #e6f4ff',
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', color: '#1677ff', marginBottom: 8, fontWeight: 500 }}>
+                      历史版本 (最多保留5个)
+                    </div>
+                    {histories.map((history, idx) => (
+                      <div
+                        key={history.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start',
+                          padding: '8px 0',
+                          borderBottom: idx < histories.length - 1 ? '1px dashed #e6f4ff' : 'none',
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <Tag color="blue" style={{ margin: 0, borderRadius: 10 }}>v{history.version_number}</Tag>
+                            <span style={{ fontSize: '12px', color: '#8c8c8c' }}>
+                              {dayjs(history.created_at).format('YYYY-MM-DD HH:mm:ss')}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: '12px',
+                              color: '#595959',
+                              marginTop: 6,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontFamily: 'Menlo, Monaco, monospace',
+                              padding: '4px 6px',
+                              background: '#fff',
+                              borderRadius: 4,
+                              border: '1px solid #f0f0f0',
+                            }}
+                            title={history.sdl}
+                          >
+                            {history.sdl.substring(0, 30)}{history.sdl.length > 30 ? '...' : ''}
+                          </div>
+                        </div>
+                        <Tooltip title="恢复此版本（会覆盖当前编辑内容）">
+                          <Button
+                            type="primary"
+                            ghost
+                            size="small"
+                            icon={<RollbackOutlined />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRestoreDraftHistory(history);
+                            }}
+                          >
+                            恢复
+                          </Button>
+                        </Tooltip>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {isExpanded && !isLoadingHistory && histories.length === 0 && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      marginLeft: 32,
+                      padding: '16px',
+                      background: '#fafafa',
+                      borderRadius: 6,
+                      border: '1px dashed #e8e8e8',
+                      fontSize: '12px',
+                      color: '#8c8c8c',
+                      textAlign: 'center',
+                    }}
+                  >
+                    暂无历史版本（下次保存草稿时将自动记录历史版本）
+                  </div>
+                )}
+
+                {isExpanded && isLoadingHistory && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      marginLeft: 32,
+                      padding: '16px',
+                      textAlign: 'center',
+                      color: '#8c8c8c',
+                      fontSize: '12px',
+                    }}
+                  >
+                    <Spin size="small" />
+                    <span style={{ marginLeft: 8 }}>加载历史版本中...</span>
+                  </div>
+                )}
               </div>
-            )}
-
-            {isExpanded && histories.length === 0 && !isLoadingHistory && (
-              <div
-                style={{
-                  marginTop: 8,
-                  marginLeft: 24,
-                  padding: '12px',
-                  background: '#fafafa',
-                  borderRadius: 4,
-                  border: '1px solid #e8e8e8',
-                  fontSize: '12px',
-                  color: '#8c8c8c',
-                  textAlign: 'center',
-                }}
-              >
-                暂无历史版本
-              </div>
-            )}
-          </div>
-        ),
-      });
-    });
-
-    return items;
-  };
-
-  const draftsMenu: MenuProps = {
-    items: getDraftsMenuItems(),
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   const getLockBanner = () => {
@@ -790,11 +851,18 @@ const CollaborativeEditor: React.FC = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ margin: 0 }}>SubGraph 列表</h3>
             <Space>
-              <Dropdown menu={draftsMenu} trigger={['click']}>
+              <Popover
+                content={renderDraftList()}
+                trigger="click"
+                placement="bottomRight"
+                onOpenChange={(open) => {
+                  if (open) loadDrafts();
+                }}
+              >
                 <Button size="small" icon={<FileTextOutlined />}>
                   我的草稿 {drafts.length > 0 && <Badge count={drafts.length} size="small" />}
                 </Button>
-              </Dropdown>
+              </Popover>
               <Space size={4}>
                 {isConnected ? (
                   <WifiOutlined style={{ color: '#52c41a' }} title="已连接" />
