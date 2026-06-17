@@ -119,6 +119,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     send({ type: 'unsubscribe_subgraph', subgraphId });
   }, [send]);
 
+  const sendCursorPosition = useCallback((subgraphId: string, lineNumber: number, columnNumber: number) => {
+    send({ type: 'cursor_position', subgraphId, lineNumber, columnNumber });
+  }, [send]);
+
   useEffect(() => {
     connect();
     return () => {
@@ -134,6 +138,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     disconnect,
     subscribeToSubgraph,
     unsubscribeFromSubgraph,
+    sendCursorPosition,
   };
 }
 

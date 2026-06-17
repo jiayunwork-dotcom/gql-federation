@@ -1,5 +1,5 @@
 import { WebSocket } from 'ws';
-import { NotificationMessage, NotificationEventType, OnlineUser } from '../types';
+import { NotificationMessage, NotificationEventType, OnlineUser, RemoteCursor } from '../types';
 import { verifyToken, getUserById } from './auth-service';
 
 interface ClientConnection {
@@ -10,6 +10,11 @@ interface ClientConnection {
   tenantId: string;
   subgraphId?: string;
   lastHeartbeat: number;
+  cursor?: {
+    lineNumber: number;
+    columnNumber: number;
+    lastUpdate: number;
+  };
 }
 
 const HEARTBEAT_INTERVAL = 30000;
@@ -124,7 +129,87 @@ class NotificationService {
           payload: { clientTime: message.timestamp },
         });
         break;
+
+      case 'cursor_position':
+        if (message.subgraphId && message.lineNumber !== undefined && message.columnNumber !== undefined) {
+          this.updateCursorPosition(connectionId, message.subgraphId, message.lineNumber, message.columnNumber);
+        }
+        break;
     }
+  }
+
+  private updateCursorPosition(
+    connectionId: string,
+    subgraphId: string,
+    lineNumber: number,
+    columnNumber: number
+  ) {
+    const connection = this.connections.get(connectionId);
+    if (!connection || connection.subgraphId !== subgraphId) return;
+
+    connection.cursor = {
+      lineNumber,
+      columnNumber,
+      lastUpdate: Date.now(),
+    };
+
+    this.broadcastCursorPositions(subgraphId, connectionId);
+  }
+
+  private broadcastCursorPositions(subgraphId: string, excludeConnectionId?: string) {
+    const subgraphConns = this.subgraphConnections.get(subgraphId);
+    if (!subgraphConns) return;
+
+    const cursors: RemoteCursor[] = [];
+    for (const connId of subgraphConns) {
+      if (connId === excludeConnectionId) continue;
+      const conn = this.connections.get(connId);
+      if (conn && conn.cursor) {
+        cursors.push({
+          userId: conn.userId,
+          userName: conn.userName,
+          userEmail: conn.userEmail,
+          subgraphId,
+          lineNumber: conn.cursor.lineNumber,
+          columnNumber: conn.cursor.columnNumber,
+          lastUpdate: conn.cursor.lastUpdate,
+        });
+      }
+    }
+
+    for (const connId of subgraphConns) {
+      this.sendToConnection(connId, {
+        type: 'cursor_position_changed',
+        timestamp: new Date().toISOString(),
+        subgraphId,
+        payload: {
+          subgraphId,
+          cursors,
+        },
+      });
+    }
+  }
+
+  getRemoteCursorsForSubgraph(subgraphId: string, excludeUserId?: string): RemoteCursor[] {
+    const subgraphConns = this.subgraphConnections.get(subgraphId);
+    if (!subgraphConns) return [];
+
+    const cursors: RemoteCursor[] = [];
+    for (const connId of subgraphConns) {
+      const conn = this.connections.get(connId);
+      if (conn && conn.cursor && conn.userId !== excludeUserId) {
+        cursors.push({
+          userId: conn.userId,
+          userName: conn.userName,
+          userEmail: conn.userEmail,
+          subgraphId,
+          lineNumber: conn.cursor.lineNumber,
+          columnNumber: conn.cursor.columnNumber,
+          lastUpdate: conn.cursor.lastUpdate,
+        });
+      }
+    }
+    return cursors;
   }
 
   private subscribeToSubgraph(connectionId: string, subgraphId: string) {

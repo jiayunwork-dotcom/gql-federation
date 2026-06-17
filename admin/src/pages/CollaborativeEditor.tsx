@@ -13,6 +13,7 @@ import {
   MenuProps,
   Badge,
   Tag,
+  Tooltip,
 } from 'antd';
 import {
   EditOutlined,
@@ -26,10 +27,14 @@ import {
   UserOutlined,
   WifiOutlined,
   DisconnectOutlined,
+  RollbackOutlined,
+  DownOutlined,
+  UpOutlined,
 } from '@ant-design/icons';
 import SDLEditor from '../components/SDLEditor';
 import ActivityTimeline from '../components/ActivityTimeline';
 import OnlineUsers from '../components/OnlineUsers';
+import SchemaDiffModal from '../components/SchemaDiffModal';
 import useWebSocket from '../hooks/useWebSocket';
 import { useAuth } from '../store/auth';
 import {
@@ -48,6 +53,8 @@ import {
   validateSDL,
   getOnlineUsers,
   submitChange,
+  getDraftHistories,
+  getRemoteCursors,
 } from '../api/collaboration';
 import {
   Subgraph,
@@ -55,7 +62,9 @@ import {
   ActivityLog,
   SyntaxValidationResult,
   Draft as DraftType,
+  DraftHistory,
   NotificationMessage,
+  RemoteCursor,
 } from '../types/collaboration';
 import dayjs from 'dayjs';
 
@@ -80,9 +89,14 @@ const CollaborativeEditor: React.FC = () => {
   const [draftsError, setDraftsError] = useState<string | null>(null);
   const [draftsModalVisible, setDraftsModalVisible] = useState(false);
   const [submitModalVisible, setSubmitModalVisible] = useState(false);
+  const [diffModalVisible, setDiffModalVisible] = useState(false);
   const [changelog, setChangelog] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([]);
+  const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
+  const [draftHistoriesMap, setDraftHistoriesMap] = useState<Map<string, DraftHistory[]>>(new Map());
+  const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null);
   const lastEditTime = useRef<number>(0);
   const validationTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lockRefreshInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -134,9 +148,13 @@ const CollaborativeEditor: React.FC = () => {
     if (notification.type === 'grayscale_progress') {
       console.log('Grayscale progress:', notification.payload);
     }
+
+    if (notification.type === 'cursor_position_changed' && notification.subgraphId === selectedSubgraph.id && notification.payload.cursors) {
+      setRemoteCursors(notification.payload.cursors);
+    }
   }, [selectedSubgraph, user?.id]);
 
-  const { isConnected, subscribeToSubgraph, unsubscribeFromSubgraph } = useWebSocket({
+  const { isConnected, subscribeToSubgraph, unsubscribeFromSubgraph, sendCursorPosition } = useWebSocket({
     onMessage: handleWebSocketMessage,
   });
 
@@ -235,11 +253,12 @@ const CollaborativeEditor: React.FC = () => {
   const loadSubgraphData = async (subgraphId: string) => {
     setIsLoading(true);
     try {
-      const [schemaResult, lockResult, activityResult, onlineResult] = await Promise.allSettled([
+      const [schemaResult, lockResult, activityResult, onlineResult, cursorResult] = await Promise.allSettled([
         getCurrentSchema(subgraphId),
         getLockStatus(subgraphId),
         getActivityLogs(subgraphId, 50, 0),
         getOnlineUsers(subgraphId),
+        getRemoteCursors(subgraphId),
       ]);
 
       if (schemaResult.status === 'fulfilled') {
@@ -265,6 +284,10 @@ const CollaborativeEditor: React.FC = () => {
       if (onlineResult.status === 'fulfilled') {
         setViewers(onlineResult.value);
       }
+
+      if (cursorResult.status === 'fulfilled') {
+        setRemoteCursors(cursorResult.value);
+      }
     } catch (err) {
       console.error('Load subgraph data error:', err);
       message.error('加载Schema数据失败');
@@ -272,6 +295,12 @@ const CollaborativeEditor: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  const handleCursorPositionChange = useCallback((lineNumber: number, columnNumber: number) => {
+    if (selectedSubgraph && isConnected) {
+      sendCursorPosition(selectedSubgraph.id, lineNumber, columnNumber);
+    }
+  }, [selectedSubgraph, isConnected, sendCursorPosition]);
 
   const loadMoreLogs = async () => {
     if (!selectedSubgraph || activityLoading) return;
@@ -359,7 +388,7 @@ const CollaborativeEditor: React.FC = () => {
     }
   };
 
-  const handleSubmit = async () => {
+  const handleOpenDiffPreview = () => {
     if (!selectedSubgraph || !lockStatus?.holder || lockStatus.holder.userId !== user?.id) {
       message.error('你没有编辑权，无法提交');
       return;
@@ -370,22 +399,71 @@ const CollaborativeEditor: React.FC = () => {
       return;
     }
 
-    if (!changelog.trim()) {
-      message.error('请填写变更说明');
-      return;
-    }
+    setDiffModalVisible(true);
+  };
 
+  const handleConfirmSubmit = async (changelogText: string) => {
+    if (!selectedSubgraph) return;
+
+    setIsLoading(true);
     try {
-      await submitChange(selectedSubgraph.id, sdl, changelog.trim());
+      await submitChange(selectedSubgraph.id, sdl, changelogText);
       message.success('变更已提交，等待审批');
-      setSubmitModalVisible(false);
+      setDiffModalVisible(false);
       setChangelog('');
       setLockStatus(await getLockStatus(selectedSubgraph.id));
       setHasUnsavedChanges(false);
       setOriginalSdl(sdl);
+      loadDrafts();
     } catch (err: any) {
       message.error(err.response?.data?.error || '提交失败');
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  const loadDraftHistories = async (draft: DraftType) => {
+    if (draftHistoriesMap.has(draft.id)) {
+      setExpandedDraftId(expandedDraftId === draft.id ? null : draft.id);
+      return;
+    }
+
+    setLoadingHistoryId(draft.id);
+    try {
+      const histories = await getDraftHistories(draft.subgraph_id);
+      setDraftHistoriesMap(prev => {
+        const next = new Map(prev);
+        next.set(draft.id, histories);
+        return next;
+      });
+      setExpandedDraftId(draft.id);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '加载草稿历史失败');
+    } finally {
+      setLoadingHistoryId(null);
+    }
+  };
+
+  const handleRestoreDraftHistory = (history: DraftHistory) => {
+    Modal.confirm({
+      title: '恢复历史版本',
+      content: '当前编辑内容将被覆盖，是否继续？',
+      okText: '确认恢复',
+      cancelText: '取消',
+      onOk: () => {
+        const subgraph = subgraphs.find(s => s.id === history.subgraph_id);
+        if (subgraph) {
+          if (lockStatus?.holder?.userId !== user?.id) {
+            message.warning('请先获取编辑权再恢复版本');
+            return;
+          }
+          setSelectedSubgraph(subgraph);
+          setSdl(history.sdl);
+          setHasUnsavedChanges(true);
+          message.success(`已恢复到 v${history.version_number} 版本`);
+        }
+      },
+    });
   };
 
   const handleRestoreDraft = async (draft: DraftType) => {
@@ -465,28 +543,135 @@ const CollaborativeEditor: React.FC = () => {
       ];
     }
 
-    return drafts.map((draft) => ({
-      key: draft.id,
-      label: (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 300 }}>
-          <div>
-            <div style={{ fontWeight: 'bold' }}>{draft.subgraph_name || draft.subgraph_id}</div>
-            <div style={{ fontSize: '12px', color: '#8c8c8c' }}>
-              更新于 {dayjs(draft.updated_at).format('YYYY-MM-DD HH:mm')}
-            </div>
-          </div>
-          <Space>
-            <Button size="small" onClick={() => handleRestoreDraft(draft)}>恢复</Button>
-            <Popconfirm
-              title="确定删除这个草稿？"
-              onConfirm={() => handleDeleteDraft(draft.subgraph_id)}
+    const items: MenuProps['items'] = [];
+
+    drafts.forEach((draft) => {
+      const isExpanded = expandedDraftId === draft.id;
+      const histories = draftHistoriesMap.get(draft.id) || [];
+      const isLoadingHistory = loadingHistoryId === draft.id;
+
+      items.push({
+        key: draft.id,
+        label: (
+          <div style={{ minWidth: 320 }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '4px 0',
+              }}
             >
-              <Button size="small" danger>删除</Button>
-            </Popconfirm>
-          </Space>
-        </div>
-      ),
-    }));
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={isExpanded ? <UpOutlined /> : <DownOutlined />}
+                  onClick={() => loadDraftHistories(draft)}
+                  loading={isLoadingHistory}
+                  style={{ padding: 0 }}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 'bold' }}>{draft.subgraph_name || draft.subgraph_id}</div>
+                  <div style={{ fontSize: '12px', color: '#8c8c8c' }}>
+                    更新于 {dayjs(draft.updated_at).format('YYYY-MM-DD HH:mm')}
+                  </div>
+                </div>
+              </div>
+              <Space>
+                <Button size="small" onClick={() => handleRestoreDraft(draft)}>恢复</Button>
+                <Popconfirm
+                  title="确定删除这个草稿？"
+                  onConfirm={() => handleDeleteDraft(draft.subgraph_id)}
+                >
+                  <Button size="small" danger>删除</Button>
+                </Popconfirm>
+              </Space>
+            </div>
+
+            {isExpanded && histories.length > 0 && (
+              <div
+                style={{
+                  marginTop: 8,
+                  marginLeft: 24,
+                  padding: '8px 12px',
+                  background: '#fafafa',
+                  borderRadius: 4,
+                  border: '1px solid #e8e8e8',
+                }}
+              >
+                <div style={{ fontSize: '12px', color: '#8c8c8c', marginBottom: 8 }}>
+                  历史版本 (最多保留5个)
+                </div>
+                {histories.map((history, idx) => (
+                  <div
+                    key={history.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '6px 0',
+                      borderBottom: idx < histories.length - 1 ? '1px dashed #e8e8e8' : 'none',
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Tag color="blue" style={{ margin: 0 }}>v{history.version_number}</Tag>
+                        <span style={{ fontSize: '12px', color: '#8c8c8c' }}>
+                          {dayjs(history.created_at).format('YYYY-MM-DD HH:mm:ss')}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '12px',
+                          color: '#595959',
+                          marginTop: 4,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontFamily: 'monospace',
+                        }}
+                      >
+                        {history.sdl.substring(0, 30)}{history.sdl.length > 30 ? '...' : ''}
+                      </div>
+                    </div>
+                    <Tooltip title="恢复此版本">
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<RollbackOutlined />}
+                        onClick={() => handleRestoreDraftHistory(history)}
+                        style={{ color: '#1890ff' }}
+                      />
+                    </Tooltip>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {isExpanded && histories.length === 0 && !isLoadingHistory && (
+              <div
+                style={{
+                  marginTop: 8,
+                  marginLeft: 24,
+                  padding: '12px',
+                  background: '#fafafa',
+                  borderRadius: 4,
+                  border: '1px solid #e8e8e8',
+                  fontSize: '12px',
+                  color: '#8c8c8c',
+                  textAlign: 'center',
+                }}
+              >
+                暂无历史版本
+              </div>
+            )}
+          </div>
+        ),
+      });
+    });
+
+    return items;
   };
 
   const draftsMenu: MenuProps = {
@@ -680,7 +865,7 @@ const CollaborativeEditor: React.FC = () => {
                       <Button
                         type="primary"
                         icon={<SendOutlined />}
-                        onClick={() => setSubmitModalVisible(true)}
+                        onClick={handleOpenDiffPreview}
                         disabled={!hasUnsavedChanges || !validation?.valid}
                       >
                         提交变更
@@ -701,6 +886,8 @@ const CollaborativeEditor: React.FC = () => {
                   readOnly={!isLockHolder}
                   validation={validation}
                   height={400}
+                  remoteCursors={remoteCursors}
+                  onCursorPositionChange={handleCursorPositionChange}
                 />
 
                 <div style={{ marginTop: 16, flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -724,7 +911,7 @@ const CollaborativeEditor: React.FC = () => {
               </div>
 
               <div style={{ width: 200, paddingLeft: 16, flexShrink: 0 }}>
-                <OnlineUsers users={viewers} currentUserId={user?.id} />
+                <OnlineUsers users={viewers} currentUserId={user?.id} remoteCursors={remoteCursors} />
               </div>
             </Content>
           </>
@@ -738,33 +925,16 @@ const CollaborativeEditor: React.FC = () => {
         )}
       </Layout>
 
-      <Modal
-        title="提交变更"
-        open={submitModalVisible}
-        onOk={handleSubmit}
-        onCancel={() => setSubmitModalVisible(false)}
-        confirmLoading={isLoading}
-        okText="提交审批"
-      >
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ marginBottom: 8, fontWeight: 'bold' }}>变更说明 (changelog)</div>
-          <TextArea
-            value={changelog}
-            onChange={(e) => setChangelog(e.target.value)}
-            placeholder="请详细描述本次变更的内容和原因..."
-            rows={4}
-            maxLength={500}
-            showCount
-          />
-        </div>
-        {hasUnsavedChanges && (
-          <Alert
-            type="info"
-            showIcon
-            message={`将提交 ${sdl.split('\n').length} 行SDL变更`}
-          />
-        )}
-      </Modal>
+      <SchemaDiffModal
+        open={diffModalVisible}
+        subgraphId={selectedSubgraph?.id || null}
+        originalSdl={originalSdl}
+        newSdl={sdl}
+        onCancel={() => setDiffModalVisible(false)}
+        onBackToEdit={() => setDiffModalVisible(false)}
+        onConfirm={handleConfirmSubmit}
+        loading={isLoading}
+      />
     </Layout>
   );
 };

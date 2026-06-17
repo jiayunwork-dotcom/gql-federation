@@ -1,5 +1,5 @@
 import api from './index';
-import { Draft, LockStatus, ActivityLog, SyntaxValidationResult, Subgraph } from '../types/collaboration';
+import { Draft, DraftHistory, LockStatus, ActivityLog, SyntaxValidationResult, Subgraph, SchemaDiffPreview, CompatibilityCheckResult, RemoteCursor } from '../types/collaboration';
 
 export async function getSubgraphs(): Promise<Subgraph[]> {
   const response = await api.get('/subgraphs');
@@ -90,4 +90,35 @@ export async function submitChange(
 ): Promise<{ message: string; approval: any; versionId: string }> {
   const response = await api.post(`/collaboration/submit/${subgraphId}`, { sdl, changelog });
   return response.data;
+}
+
+export async function getDiffPreview(
+  subgraphId: string,
+  newSdl: string
+): Promise<SchemaDiffPreview> {
+  const response = await api.post(`/collaboration/diff-preview/${subgraphId}`, { newSdl });
+  return response.data;
+}
+
+export async function checkCompatibility(
+  subgraphId: string,
+  newSdl: string
+): Promise<CompatibilityCheckResult> {
+  const response = await api.post(`/collaboration/check-compatibility/${subgraphId}`, { newSdl });
+  return response.data.compatibility;
+}
+
+export async function getDraftHistories(subgraphId: string): Promise<DraftHistory[]> {
+  const response = await api.get(`/collaboration/draft-histories/${subgraphId}`);
+  return response.data.histories;
+}
+
+export async function getDraftHistoryById(historyId: string): Promise<DraftHistory> {
+  const response = await api.get(`/collaboration/draft-history/${historyId}`);
+  return response.data.history;
+}
+
+export async function getRemoteCursors(subgraphId: string): Promise<RemoteCursor[]> {
+  const response = await api.get(`/collaboration/remote-cursors/${subgraphId}`);
+  return response.data.cursors;
 }

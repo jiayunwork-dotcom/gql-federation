@@ -1,5 +1,5 @@
-import { parse, print, DocumentNode, ObjectTypeDefinitionNode, FieldDefinitionNode, NameNode } from 'graphql';
-import { SchemaDiffResult, SchemaDiffLine } from '../types';
+import { parse, print, DocumentNode, ObjectTypeDefinitionNode, FieldDefinitionNode, NameNode, NonNullTypeNode, NamedTypeNode, ListTypeNode } from 'graphql';
+import { SchemaDiffResult, SchemaDiffLine, SchemaDiffPreview, CompatibilityCheckResult, CompatibilityCheckItem, CompatibilityLevel, DiffStats } from '../types';
 import { getSchemaVersionById, getSchemaVersions } from './subgraph-service';
 
 interface TypeBlock {
@@ -313,7 +313,180 @@ export async function getDiffableVersions(subgraphId: string): Promise<Array<{ i
   }));
 }
 
+function isDeprecatedField(field: FieldDefinitionNode): boolean {
+  return field.directives?.some(d => d.name.value === 'deprecated') || false;
+}
+
+function isNonNullType(type: any): boolean {
+  return type.kind === 'NonNullType';
+}
+
+function hasDefaultValue(field: FieldDefinitionNode): boolean {
+  if (!field.arguments) return false;
+  return field.arguments.some(arg => arg.defaultValue !== undefined);
+}
+
+function getTypeDefinitionNames(doc: DocumentNode): Set<string> {
+  const names = new Set<string>();
+  for (const def of doc.definitions) {
+    const nameNode = (def as any).name as NameNode | undefined;
+    if (nameNode) {
+      names.add(nameNode.value);
+    }
+  }
+  return names;
+}
+
+export function checkCompatibility(
+  oldSdl: string,
+  newSdl: string
+): CompatibilityCheckResult {
+  const items: CompatibilityCheckItem[] = [];
+
+  let oldDoc: DocumentNode;
+  let newDoc: DocumentNode;
+
+  try {
+    oldDoc = parse(oldSdl);
+    newDoc = parse(newSdl);
+  } catch {
+    return {
+      items: [{
+        type: 'PARSE_ERROR',
+        description: 'SDL解析失败，无法进行兼容性检测',
+        level: 'WARNING',
+      }],
+      hasBreakingChanges: false,
+      breakingCount: 0,
+      compatibleCount: 0,
+      warningCount: 1,
+    };
+  }
+
+  const oldTypes = new Map<string, ObjectTypeDefinitionNode>();
+  const newTypes = new Map<string, ObjectTypeDefinitionNode>();
+  const oldAllNames = getTypeDefinitionNames(oldDoc);
+  const newAllNames = getTypeDefinitionNames(newDoc);
+
+  for (const def of oldDoc.definitions) {
+    const nameNode = (def as any).name as NameNode | undefined;
+    if (nameNode && def.kind === 'ObjectTypeDefinition') {
+      oldTypes.set(nameNode.value, def as ObjectTypeDefinitionNode);
+    }
+  }
+
+  for (const def of newDoc.definitions) {
+    const nameNode = (def as any).name as NameNode | undefined;
+    if (nameNode && def.kind === 'ObjectTypeDefinition') {
+      newTypes.set(nameNode.value, def as ObjectTypeDefinitionNode);
+    }
+  }
+
+  for (const typeName of oldAllNames) {
+    if (!newAllNames.has(typeName)) {
+      items.push({
+        type: 'TYPE_REMOVED',
+        description: `移除了类型 ${typeName}`,
+        path: typeName,
+        level: 'BREAKING',
+      });
+    }
+  }
+
+  for (const [typeName, oldDef] of oldTypes) {
+    const newDef = newTypes.get(typeName);
+    if (!newDef) continue;
+
+    const oldFields = new Map(
+      (oldDef.fields || []).map((f: FieldDefinitionNode) => [f.name.value, f])
+    );
+    const newFields = new Map(
+      (newDef.fields || []).map((f: FieldDefinitionNode) => [f.name.value, f])
+    );
+
+    for (const [fieldName, oldField] of oldFields) {
+      if (!newFields.has(fieldName)) {
+        const isDeprecated = isDeprecatedField(oldField);
+        items.push({
+          type: isDeprecated ? 'DEPRECATED_FIELD_REMOVED' : 'FIELD_REMOVED',
+          description: `移除了字段 ${typeName}.${fieldName}${isDeprecated ? '（已废弃）' : ''}`,
+          path: `${typeName}.${fieldName}`,
+          level: isDeprecated ? 'COMPATIBLE' : 'BREAKING',
+        });
+      } else {
+        const newField = newFields.get(fieldName)!;
+        const oldTypeStr = print(oldField.type);
+        const newTypeStr = print(newField.type);
+
+        if (oldTypeStr !== newTypeStr) {
+          items.push({
+            type: 'FIELD_TYPE_CHANGED',
+            description: `字段 ${typeName}.${fieldName} 类型从 ${oldTypeStr} 改为 ${newTypeStr}`,
+            path: `${typeName}.${fieldName}`,
+            level: 'BREAKING',
+          });
+        }
+      }
+    }
+
+    for (const [fieldName, newField] of newFields) {
+      if (!oldFields.has(fieldName)) {
+        const isRequired = isNonNullType(newField.type) && !hasDefaultValue(newField);
+        items.push({
+          type: isRequired ? 'REQUIRED_FIELD_ADDED' : 'OPTIONAL_FIELD_ADDED',
+          description: `新增了${isRequired ? '必填' : '可选'}字段 ${typeName}.${fieldName}: ${print(newField.type)}`,
+          path: `${typeName}.${fieldName}`,
+          level: isRequired ? 'BREAKING' : 'COMPATIBLE',
+        });
+      }
+    }
+  }
+
+  const breakingCount = items.filter(i => i.level === 'BREAKING').length;
+  const compatibleCount = items.filter(i => i.level === 'COMPATIBLE').length;
+  const warningCount = items.filter(i => i.level === 'WARNING').length;
+
+  return {
+    items,
+    hasBreakingChanges: breakingCount > 0,
+    breakingCount,
+    compatibleCount,
+    warningCount,
+  };
+}
+
+export function computeDiffPreview(
+  oldSdl: string,
+  newSdl: string
+): SchemaDiffPreview {
+  const { leftLines, rightLines } = computeLineDiff(oldSdl, newSdl);
+  const compatibility = checkCompatibility(oldSdl, newSdl);
+
+  const stats: DiffStats = {
+    added: rightLines.filter(l => l.type === 'added').length,
+    removed: leftLines.filter(l => l.type === 'removed').length,
+    modified: rightLines.filter(l => l.type === 'modified').length,
+  };
+
+  return {
+    leftLines: leftLines.map(l => ({
+      lineNumber: l.lineNumber,
+      content: String(l.content ?? ''),
+      type: l.type,
+    })),
+    rightLines: rightLines.map(l => ({
+      lineNumber: l.lineNumber,
+      content: String(l.content ?? ''),
+      type: l.type,
+    })),
+    stats,
+    compatibility,
+  };
+}
+
 export default {
   computeSchemaDiff,
   getDiffableVersions,
+  checkCompatibility,
+  computeDiffPreview,
 };

@@ -1,8 +1,10 @@
 import { query } from '../db';
-import { Draft, ActivityLog, ActionType, SyntaxValidationResult } from '../types';
+import { Draft, DraftHistory, ActivityLog, ActionType, SyntaxValidationResult } from '../types';
 import { getSubgraphById } from './subgraph-service';
 import { notificationService } from './notification-service';
 import { parse, validate, specifiedRules, buildSchema } from 'graphql';
+
+const MAX_DRAFT_HISTORY = 5;
 
 export async function getDraftByUserAndSubgraph(
   tenantId: string,
@@ -54,11 +56,78 @@ export async function saveDraft(
     [tenantId, subgraphId, userId, userEmail, userName, sdl]
   );
 
+  const draft = result.rows[0];
+  await addDraftHistory(tenantId, draft.id, subgraphId, userId, sdl);
+
   await logActivity(tenantId, subgraphId, subgraph.name, userId, userEmail, userName, 'draft_saved', {
     sdlLength: sdl.length,
   });
 
-  return result.rows[0];
+  return draft;
+}
+
+async function addDraftHistory(
+  tenantId: string,
+  draftId: string,
+  subgraphId: string,
+  userId: string,
+  sdl: string
+): Promise<void> {
+  const countResult = await query(
+    `SELECT COUNT(*) as count FROM draft_histories 
+     WHERE draft_id = $1 AND tenant_id = $2`,
+    [draftId, tenantId]
+  );
+  const currentCount = parseInt(countResult.rows[0].count, 10);
+  const nextVersion = currentCount + 1;
+
+  await query(
+    `INSERT INTO draft_histories (draft_id, tenant_id, subgraph_id, user_id, sdl, version_number)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [draftId, tenantId, subgraphId, userId, sdl, nextVersion]
+  );
+
+  if (nextVersion > MAX_DRAFT_HISTORY) {
+    await query(
+      `DELETE FROM draft_histories 
+       WHERE draft_id = $1 AND tenant_id = $2 
+       AND id NOT IN (
+         SELECT id FROM draft_histories 
+         WHERE draft_id = $1 AND tenant_id = $2 
+         ORDER BY created_at DESC 
+         LIMIT $3
+       )`,
+      [draftId, tenantId, MAX_DRAFT_HISTORY]
+    );
+  }
+}
+
+export async function getDraftHistories(
+  tenantId: string,
+  subgraphId: string,
+  userId: string
+): Promise<DraftHistory[]> {
+  const result = await query<DraftHistory>(
+    `SELECT * FROM draft_histories 
+     WHERE tenant_id = $1 AND subgraph_id = $2 AND user_id = $3
+     ORDER BY created_at DESC
+     LIMIT $4`,
+    [tenantId, subgraphId, userId, MAX_DRAFT_HISTORY]
+  );
+  return result.rows;
+}
+
+export async function getDraftHistoryById(
+  historyId: string,
+  tenantId: string,
+  userId: string
+): Promise<DraftHistory | null> {
+  const result = await query<DraftHistory>(
+    `SELECT * FROM draft_histories 
+     WHERE id = $1 AND tenant_id = $2 AND user_id = $3`,
+    [historyId, tenantId, userId]
+  );
+  return result.rows[0] || null;
 }
 
 export async function deleteDraft(
@@ -178,4 +247,6 @@ export default {
   logActivity,
   getActivityLogs,
   validateSDL,
+  getDraftHistories,
+  getDraftHistoryById,
 };

@@ -1,6 +1,7 @@
-import React, { useRef, useEffect, useCallback, useMemo } from 'react';
-import { SyntaxValidationResult } from '../types/collaboration';
+import React, { useRef, useEffect, useCallback, useMemo, useState } from 'react';
+import { SyntaxValidationResult, RemoteCursor } from '../types/collaboration';
 import { CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { Tooltip } from 'antd';
 
 interface SDLEditorProps {
   value: string;
@@ -8,6 +9,8 @@ interface SDLEditorProps {
   readOnly?: boolean;
   validation?: SyntaxValidationResult | null;
   height?: number;
+  remoteCursors?: RemoteCursor[];
+  onCursorPositionChange?: (lineNumber: number, columnNumber: number) => void;
 }
 
 const KEYWORDS = ['type', 'interface', 'enum', 'input', 'union', 'scalar', 'extend', 'implements', 'directive', 'schema', 'query', 'mutation', 'subscription'];
@@ -94,16 +97,33 @@ const LINE_HEIGHT = 20;
 const FONT_FAMILY = 'Monaco, Menlo, "Ubuntu Mono", Consolas, monospace';
 const FONT_SIZE = 14;
 
+const CURSOR_COLORS = [
+  '#f56a00', '#7265e6', '#ffbf00', '#00a2ae',
+  '#eb2f96', '#fa8c16', '#13c2c2', '#a0d911',
+];
+
+const getCursorColor = (email: string) => {
+  let hash = 0;
+  for (let i = 0; i < email.length; i++) {
+    hash = email.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return CURSOR_COLORS[Math.abs(hash) % CURSOR_COLORS.length];
+};
+
 const SDLEditor: React.FC<SDLEditorProps> = ({
   value,
   onChange,
   readOnly = false,
   validation = null,
   height = 400,
+  remoteCursors = [],
+  onCursorPositionChange,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightRef = useRef<HTMLDivElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
+  const cursorSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [fadingCursors, setFadingCursors] = useState<Set<string>>(new Set());
 
   const tokens = useMemo(() => tokenizeSDL(value), [value]);
 
@@ -127,6 +147,53 @@ const SDLEditor: React.FC<SDLEditorProps> = ({
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onChange(e.target.value);
   }, [onChange]);
+
+  const getCursorPosition = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return null;
+    const selectionStart = textarea.selectionStart;
+    const textBeforeCursor = value.substring(0, selectionStart);
+    const lineNumber = textBeforeCursor.split('\n').length;
+    const lastNewLineIndex = textBeforeCursor.lastIndexOf('\n');
+    const columnNumber = lastNewLineIndex === -1 ? selectionStart + 1 : selectionStart - lastNewLineIndex;
+    return { lineNumber, columnNumber };
+  }, [value]);
+
+  const handleCursorActivity = useCallback(() => {
+    if (cursorSendTimer.current) {
+      clearTimeout(cursorSendTimer.current);
+    }
+    cursorSendTimer.current = setTimeout(() => {
+      const position = getCursorPosition();
+      if (position && onCursorPositionChange) {
+        onCursorPositionChange(position.lineNumber, position.columnNumber);
+      }
+    }, 100);
+  }, [getCursorPosition, onCursorPositionChange]);
+
+  const previousCursors = useRef<RemoteCursor[]>([]);
+
+  useEffect(() => {
+    const leftUsers = previousCursors.current.filter(
+      prev => !remoteCursors.find(curr => curr.userId === prev.userId)
+    );
+    if (leftUsers.length > 0) {
+      const fading = new Set(leftUsers.map(u => u.userId));
+      setFadingCursors(prev => {
+        const next = new Set(prev);
+        fading.forEach(id => next.add(id));
+        return next;
+      });
+      setTimeout(() => {
+        setFadingCursors(prev => {
+          const next = new Set(prev);
+          fading.forEach(id => next.delete(id));
+          return next;
+        });
+      }, 3000);
+    }
+    previousCursors.current = remoteCursors;
+  }, [remoteCursors]);
 
   useEffect(() => {
     syncScroll();
@@ -214,11 +281,49 @@ const SDLEditor: React.FC<SDLEditorProps> = ({
                 textAlign: 'right',
                 userSelect: 'none',
                 willChange: 'transform',
+                position: 'relative',
               }}
             >
-              {Array.from({ length: lineCount }, (_, i) => (
-                <div key={i}>{i + 1}</div>
-              ))}
+              {Array.from({ length: lineCount }, (_, i) => {
+                const lineNum = i + 1;
+                const lineCursors = remoteCursors.filter(c => c.lineNumber === lineNum);
+                const fadingLineCursors = Array.from(fadingCursors).map(id => remoteCursors.find(c => c.userId === id) || previousCursors.current.find(c => c.userId === id)).filter(Boolean).filter(c => c!.lineNumber === lineNum) as RemoteCursor[];
+                const allLineCursors = [...lineCursors, ...fadingLineCursors.filter(fc => !lineCursors.find(lc => lc.userId === fc.userId))];
+                
+                return (
+                  <div key={i} style={{ position: 'relative', height: LINE_HEIGHT }}>
+                    <span>{lineNum}</span>
+                    {allLineCursors.map((cursor, idx) => {
+                      const isFading = fadingCursors.has(cursor.userId);
+                      const color = getCursorColor(cursor.userEmail);
+                      return (
+                        <Tooltip
+                          key={`${cursor.userId}-${idx}`}
+                          title={`${cursor.userName} - 第${cursor.lineNumber}行`}
+                          placement="right"
+                        >
+                          <div
+                            style={{
+                              position: 'absolute',
+                              right: 0,
+                              top: 0,
+                              width: 0,
+                              height: 0,
+                              borderTop: `${LINE_HEIGHT / 2}px solid transparent`,
+                              borderBottom: `${LINE_HEIGHT / 2}px solid transparent`,
+                              borderRight: `6px solid ${color}`,
+                              transform: `translateX(${idx * 8}px)`,
+                              opacity: isFading ? 0 : 1,
+                              transition: 'opacity 3s ease-out',
+                              pointerEvents: 'none',
+                            }}
+                          />
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -260,8 +365,14 @@ const SDLEditor: React.FC<SDLEditorProps> = ({
         <textarea
           ref={textareaRef}
           value={value}
-          onChange={handleChange}
+          onChange={(e) => {
+            handleChange(e);
+            handleCursorActivity();
+          }}
           onScroll={syncScroll}
+          onClick={handleCursorActivity}
+          onKeyUp={handleCursorActivity}
+          onSelect={handleCursorActivity}
           readOnly={readOnly}
           spellCheck={false}
           style={{

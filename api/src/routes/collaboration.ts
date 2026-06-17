@@ -16,10 +16,13 @@ import {
   getActivityLogs,
   validateSDL,
   logActivity,
+  getDraftHistories,
+  getDraftHistoryById,
 } from '../services/collaboration-service';
 import { submitSchemaChange } from '../services/approval-service';
 import { getSubgraphById, getActiveSchemaVersion, getSchemaVersionById, getLatestSchemaVersion } from '../services/subgraph-service';
 import { notificationService } from '../services/notification-service';
+import { computeDiffPreview, checkCompatibility } from '../services/schema-diff-service';
 
 export default async function collaborationRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authMiddleware);
@@ -236,5 +239,107 @@ export default async function collaborationRoutes(fastify: FastifyInstance) {
     } catch (err: any) {
       reply.status(400).send({ error: err.message });
     }
+  });
+
+  fastify.post('/diff-preview/:subgraphId', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { subgraphId } = request.params as { subgraphId: string };
+    const body = request.body as any;
+    const tenantId = request.tenantId!;
+
+    try {
+      const subgraph = await getSubgraphById(subgraphId, tenantId);
+      if (!subgraph) {
+        reply.status(404).send({ error: 'Subgraph not found' });
+        return;
+      }
+
+      let oldSdl = '';
+      if (subgraph.current_version_id) {
+        const version = await getSchemaVersionById(subgraph.current_version_id);
+        if (version) {
+          oldSdl = version.sdl;
+        }
+      }
+
+      if (!oldSdl) {
+        const activeVersion = await getActiveSchemaVersion(subgraphId);
+        if (activeVersion) {
+          oldSdl = activeVersion.sdl;
+        }
+      }
+
+      const newSdl = body.newSdl || '';
+      const diffPreview = computeDiffPreview(oldSdl, newSdl);
+
+      return diffPreview;
+    } catch (err: any) {
+      reply.status(400).send({ error: err.message });
+    }
+  });
+
+  fastify.post('/check-compatibility/:subgraphId', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { subgraphId } = request.params as { subgraphId: string };
+    const body = request.body as any;
+    const tenantId = request.tenantId!;
+
+    try {
+      const subgraph = await getSubgraphById(subgraphId, tenantId);
+      if (!subgraph) {
+        reply.status(404).send({ error: 'Subgraph not found' });
+        return;
+      }
+
+      let oldSdl = '';
+      if (subgraph.current_version_id) {
+        const version = await getSchemaVersionById(subgraph.current_version_id);
+        if (version) {
+          oldSdl = version.sdl;
+        }
+      }
+
+      if (!oldSdl) {
+        const activeVersion = await getActiveSchemaVersion(subgraphId);
+        if (activeVersion) {
+          oldSdl = activeVersion.sdl;
+        }
+      }
+
+      const newSdl = body.newSdl || '';
+      const compatibility = checkCompatibility(oldSdl, newSdl);
+
+      return { compatibility };
+    } catch (err: any) {
+      reply.status(400).send({ error: err.message });
+    }
+  });
+
+  fastify.get('/draft-histories/:subgraphId', async (request: FastifyRequest) => {
+    const { subgraphId } = request.params as { subgraphId: string };
+    const tenantId = request.tenantId!;
+    const userId = request.user!.id;
+
+    const histories = await getDraftHistories(tenantId, subgraphId, userId);
+    return { histories };
+  });
+
+  fastify.get('/draft-history/:historyId', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { historyId } = request.params as { historyId: string };
+    const tenantId = request.tenantId!;
+    const userId = request.user!.id;
+
+    const history = await getDraftHistoryById(historyId, tenantId, userId);
+    if (!history) {
+      reply.status(404).send({ error: 'Draft history not found' });
+      return;
+    }
+    return { history };
+  });
+
+  fastify.get('/remote-cursors/:subgraphId', async (request: FastifyRequest) => {
+    const { subgraphId } = request.params as { subgraphId: string };
+    const userId = request.user!.id;
+
+    const cursors = notificationService.getRemoteCursorsForSubgraph(subgraphId, userId);
+    return { cursors };
   });
 }

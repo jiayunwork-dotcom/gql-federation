@@ -59,3 +59,24 @@ $$ language 'plpgsql';
 DROP TRIGGER IF EXISTS update_drafts_updated_at ON drafts;
 CREATE TRIGGER update_drafts_updated_at BEFORE UPDATE ON drafts
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- Draft History Table - 草稿版本历史
+-- ============================================
+CREATE TABLE IF NOT EXISTS draft_histories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    draft_id UUID NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    subgraph_id UUID NOT NULL REFERENCES subgraphs(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    sdl TEXT NOT NULL,
+    version_number INT NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_draft_histories_draft_id ON draft_histories(draft_id);
+CREATE INDEX IF NOT EXISTS idx_draft_histories_tenant_id ON draft_histories(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_draft_histories_subgraph_id ON draft_histories(subgraph_id);
+CREATE INDEX IF NOT EXISTS idx_draft_histories_user_id ON draft_histories(user_id);
+CREATE INDEX IF NOT EXISTS idx_draft_histories_tenant_user_subgraph ON draft_histories(tenant_id, user_id, subgraph_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_draft_histories_draft_version ON draft_histories(draft_id, version_number DESC);

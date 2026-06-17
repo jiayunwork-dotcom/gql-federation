@@ -288,6 +288,28 @@ export interface Draft {
   updated_at: Date;
 }
 
+export interface DraftHistory {
+  id: string;
+  draft_id: string;
+  tenant_id: string;
+  subgraph_id: string;
+  user_id: string;
+  sdl: string;
+  version_number: number;
+  created_at: Date;
+}
+
+export interface RemoteCursor {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  subgraphId: string;
+  lineNumber: number;
+  columnNumber: number;
+  lastUpdate: number;
+  fadingOut?: boolean;
+}
+
 export type ActionType = 
   | 'lock_acquired'
   | 'lock_released'
@@ -321,7 +343,8 @@ export type NotificationEventType =
   | 'user_presence_changed'
   | 'activity_logged'
   | 'heartbeat_ack'
-  | 'pong';
+  | 'pong'
+  | 'cursor_position_changed';
 
 export interface NotificationMessage {
   type: NotificationEventType;
@@ -362,4 +385,42 @@ export interface SyntaxValidationResult {
     column: number;
     message: string;
   }>;
+}
+
+export type CompatibilityLevel = 'COMPATIBLE' | 'BREAKING' | 'WARNING';
+
+export interface CompatibilityCheckItem {
+  type: string;
+  description: string;
+  path?: string;
+  level: CompatibilityLevel;
+}
+
+export interface CompatibilityCheckResult {
+  items: CompatibilityCheckItem[];
+  hasBreakingChanges: boolean;
+  breakingCount: number;
+  compatibleCount: number;
+  warningCount: number;
+}
+
+export interface DiffStats {
+  added: number;
+  removed: number;
+  modified: number;
+}
+
+export interface SchemaDiffPreview {
+  leftLines: Array<{
+    lineNumber: number;
+    content: string;
+    type: 'added' | 'removed' | 'modified' | 'unchanged';
+  }>;
+  rightLines: Array<{
+    lineNumber: number;
+    content: string;
+    type: 'added' | 'removed' | 'modified' | 'unchanged';
+  }>;
+  stats: DiffStats;
+  compatibility: CompatibilityCheckResult;
 }
