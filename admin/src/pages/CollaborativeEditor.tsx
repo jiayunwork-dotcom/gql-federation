@@ -103,14 +103,21 @@ const CollaborativeEditor: React.FC = () => {
   const lastEditTime = useRef<number>(0);
   const validationTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lockRefreshInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastDraftCheckTime = useRef<number>(0);
+  const seenActivityIds = useRef<Set<string>>(new Set());
 
   const handleWebSocketMessage = useCallback(async (notification: NotificationMessage) => {
     if (!selectedSubgraph) return;
 
     if (notification.type === 'lock_status_changed' && notification.subgraphId === selectedSubgraph.id) {
       setLockStatus(notification.payload.lockStatus);
-      
-      if (notification.payload.lockStatus.holder?.userId === user?.id) {
+
+      const now = Date.now();
+      if (
+        notification.payload.lockStatus.holder?.userId === user?.id &&
+        now - lastDraftCheckTime.current > 3000
+      ) {
+        lastDraftCheckTime.current = now;
         const draft = await getDraft(selectedSubgraph.id);
         if (draft) {
           Modal.confirm({
@@ -133,7 +140,11 @@ const CollaborativeEditor: React.FC = () => {
     }
 
     if (notification.type === 'activity_logged' && notification.subgraphId === selectedSubgraph.id) {
-      setActivityLogs((prev) => [notification.payload.activity, ...prev].slice(0, 50));
+      const activity = notification.payload.activity;
+      if (activity && activity.id && !seenActivityIds.current.has(activity.id)) {
+        seenActivityIds.current.add(activity.id);
+        setActivityLogs((prev) => [activity, ...prev].slice(0, 50));
+      }
     }
 
     if (notification.type === 'approval_status_changed') {
@@ -282,6 +293,11 @@ const CollaborativeEditor: React.FC = () => {
         setActivityLogs(activityResult.value.logs);
         setHasMoreLogs(activityResult.value.hasMore);
         setActivityOffset(50);
+        const ids = new Set<string>();
+        activityResult.value.logs.forEach((log: any) => {
+          if (log.id) ids.add(log.id);
+        });
+        seenActivityIds.current = ids;
       }
 
       if (onlineResult.status === 'fulfilled') {
@@ -471,13 +487,21 @@ const CollaborativeEditor: React.FC = () => {
 
   const handleRestoreDraft = async (draft: DraftType) => {
     const subgraph = subgraphs.find(s => s.id === draft.subgraph_id);
-    if (subgraph) {
-      setSelectedSubgraph(subgraph);
-      setSdl(draft.sdl);
-      setHasUnsavedChanges(true);
-      setDraftsModalVisible(false);
-      message.success('草稿已恢复');
-    }
+    if (!subgraph) return;
+
+    Modal.confirm({
+      title: '恢复草稿',
+      content: '当前编辑内容将被覆盖，是否继续？',
+      okText: '确认恢复',
+      cancelText: '取消',
+      onOk: () => {
+        setSelectedSubgraph(subgraph);
+        setSdl(draft.sdl);
+        setHasUnsavedChanges(true);
+        setDraftsModalVisible(false);
+        message.success('草稿已恢复');
+      },
+    });
   };
 
   const handleDeleteDraft = async (subgraphId: string) => {
@@ -522,9 +546,18 @@ const CollaborativeEditor: React.FC = () => {
 
     if (draftsError) {
       return (
-        <div style={{ padding: 24, textAlign: 'center' }}>
-          <div style={{ color: '#ff4d4f', marginBottom: 12 }}>{draftsError}</div>
-          <Button size="small" type="primary" onClick={loadDrafts}>重试</Button>
+        <div style={{ padding: 24, textAlign: 'center', minWidth: 280 }}>
+          <div style={{ color: '#ff4d4f', marginBottom: 12, fontSize: 13 }}>
+            {draftsError}
+          </div>
+          <Button
+            size="small"
+            type="primary"
+            onClick={loadDrafts}
+            loading={draftsLoading}
+          >
+            重新加载
+          </Button>
         </div>
       );
     }
@@ -858,6 +891,8 @@ const CollaborativeEditor: React.FC = () => {
                 onOpenChange={(open) => {
                   if (open) loadDrafts();
                 }}
+                overlayStyle={{ minWidth: 380, padding: 0 }}
+                destroyTooltipOnHide
               >
                 <Button size="small" icon={<FileTextOutlined />}>
                   我的草稿 {drafts.length > 0 && <Badge count={drafts.length} size="small" />}

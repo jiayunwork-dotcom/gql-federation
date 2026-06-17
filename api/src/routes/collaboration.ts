@@ -28,11 +28,20 @@ export default async function collaborationRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authMiddleware);
   fastify.addHook('preHandler', tenantMiddleware);
 
-  fastify.get('/drafts', async (request: FastifyRequest) => {
+  fastify.get('/drafts', async (request: FastifyRequest, reply: FastifyReply) => {
     const tenantId = request.tenantId!;
-    const userId = request.user!.id;
-    const drafts = await getDraftsByUser(tenantId, userId);
-    return { drafts };
+    const userId = request.user?.id;
+    if (!userId) {
+      reply.status(401).send({ error: '用户未登录' });
+      return;
+    }
+    try {
+      const drafts = await getDraftsByUser(tenantId, userId);
+      return { drafts };
+    } catch (err: any) {
+      console.error('Get drafts error:', err);
+      reply.status(500).send({ error: err.message || '获取草稿失败' });
+    }
   });
 
   fastify.get('/drafts/:subgraphId', async (request: FastifyRequest) => {

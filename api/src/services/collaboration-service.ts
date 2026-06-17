@@ -22,11 +22,11 @@ export async function getDraftByUserAndSubgraph(
 export async function getDraftsByUser(
   tenantId: string,
   userId: string
-): Promise<Draft[]> {
-  const result = await query<Draft>(
+): Promise<(Draft & { subgraph_name?: string })[]> {
+  const result = await query(
     `SELECT d.*, s.name as subgraph_name 
      FROM drafts d
-     JOIN subgraphs s ON d.subgraph_id = s.id
+     LEFT JOIN subgraphs s ON d.subgraph_id = s.id AND s.tenant_id = d.tenant_id
      WHERE d.tenant_id = $1 AND d.user_id = $2
      ORDER BY d.updated_at DESC`,
     [tenantId, userId]
