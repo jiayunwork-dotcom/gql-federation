@@ -150,9 +150,9 @@ const VersionManagement: React.FC = () => {
       if (message.payload.actionType) {
         const newNotification = {
           id: Date.now() + Math.random(),
-          actionType: message.payload.actionType,
-          subgraphName: message.payload.subgraphName,
-          operator: message.payload.operator,
+          actionType: message.payload.actionType || 'unknown',
+          subgraphName: message.payload.subgraphName || message.subgraphName || '未知',
+          operator: message.payload.operator || message.payload.startedBy || '未知用户',
           currentPercent: message.payload.currentPercent,
           timestamp: message.timestamp,
           status: message.payload.status,
@@ -550,8 +550,9 @@ const VersionManagement: React.FC = () => {
       adjust_percent: '调整比例',
       full_release: '全量发布',
       rollback: '回滚',
+      unknown: '未知操作',
     };
-    return typeMap[actionType] || actionType;
+    return typeMap[actionType] || actionType || '未知操作';
   };
 
   const getCanaryActionColor = (actionType: string) => {
